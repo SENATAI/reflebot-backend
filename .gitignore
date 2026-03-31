@@ -1,0 +1,26 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Environments
+.env
+
+# Alembic
+migrations/versions/*
+
+celerybeat-*
+
+.agents/*
+.hypothesis/*
+.kiro/*
+.pytest_cache/*
+.vscode/*
+.codex
+skills-lock.json
