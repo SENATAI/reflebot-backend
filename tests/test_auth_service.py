@@ -11,6 +11,7 @@ import pytest
 from reflebot.apps.reflections.schemas import AdminLoginSchema, AdminReadSchema, StudentReadSchema, TeacherReadSchema
 from reflebot.apps.reflections.models import Admin
 from reflebot.apps.reflections.services.auth import AuthService
+from reflebot.apps.reflections.telegram.buttons import TelegramButtons
 from reflebot.core.utils.exceptions import ModelFieldNotFoundException
 
 
@@ -135,12 +136,50 @@ async def test_auth_service_gives_teacher_buttons_to_admin_without_teacher_role(
     response = await service.login_user("user", AdminLoginSchema(telegram_id=99))
 
     actions = {button.action for button in response.buttons}
+    support_button = next(button for button in response.buttons if button.url)
     assert response.is_admin is True
     assert response.is_teacher is False
     assert "admin_view_courses" in actions
     assert "teacher_analytics" in actions
     assert "teacher_next_lection" in actions
+    assert support_button.text == "🛠 Тех. Поддержка"
+    assert support_button.url == TelegramButtons.TECH_SUPPORT_URL
     context_service.clear_context.assert_awaited_once_with(99)
+
+
+@pytest.mark.asyncio
+async def test_auth_service_student_only_receives_support_button():
+    admin_repository = AsyncMock()
+    student_repository = AsyncMock()
+    teacher_repository = AsyncMock()
+    context_service = AsyncMock()
+    student = create_student()
+
+    admin_repository.get_by_telegram_username.side_effect = ModelFieldNotFoundException(
+        Admin,
+        "telegram_username",
+        "student_user",
+    )
+    student_repository.get_by_telegram_username.return_value = student
+    student_repository.update_telegram_id.return_value = student.model_copy(update={"telegram_id": 99})
+    teacher_repository.get_by_telegram_username.return_value = None
+
+    service = build_auth_service(
+        admin_repository=admin_repository,
+        student_repository=student_repository,
+        teacher_repository=teacher_repository,
+        context_service=context_service,
+    )
+
+    response = await service.login_user("student_user", AdminLoginSchema(telegram_id=99))
+
+    assert response.is_student is True
+    assert response.is_admin is False
+    assert response.is_teacher is False
+    assert len(response.buttons) == 1
+    assert response.buttons[0].text == "🛠 Тех. Поддержка"
+    assert response.buttons[0].url == TelegramButtons.TECH_SUPPORT_URL
+    assert response.buttons[0].action is None
 
 
 @pytest.mark.asyncio
@@ -169,7 +208,7 @@ async def test_auth_service_existing_admin_or_teacher_never_falls_back_to_course
 
     response = await service.login_user("teacher_user", AdminLoginSchema(telegram_id=99))
 
-    assert response.message != "Привет студент, введи код курса."
+    assert response.message != "Привет, студент, введи код курса."
     assert response.is_teacher is True
     assert response.awaiting_input is False
     context_service.set_context.assert_not_awaited()
@@ -199,7 +238,7 @@ async def test_auth_service_unknown_username_requests_course_code():
 
     response = await service.login_user("new_student", AdminLoginSchema(telegram_id=99))
 
-    assert response.message == "Привет студент, введи код курса."
+    assert response.message == "Привет, студент, введи код курса."
     assert response.buttons == []
     assert response.awaiting_input is True
     context_service.set_context.assert_awaited_once_with(

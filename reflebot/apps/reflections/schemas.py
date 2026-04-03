@@ -116,7 +116,8 @@ class TelegramButtonSchema(BaseModel):
     """Схема кнопки Telegram."""
     
     text: str = Field(..., description="Текст кнопки")
-    action: str = Field(..., description="Действие кнопки")
+    action: str | None = Field(default=None, description="Действие кнопки")
+    url: str | None = Field(default=None, description="URL для открытия внешней ссылки")
 
 
 class TelegramFileReferenceSchema(BaseModel):
@@ -435,6 +436,37 @@ class StudentLectionReadSchema(StudentLectionBaseSchema):
     created_at: datetime
     updated_at: datetime
     
+    model_config = ConfigDict(from_attributes=True)
+
+
+# StudentHistoryLog schemas
+
+class StudentHistoryLogBaseSchema(BaseModel):
+    """Базовая схема лога действий студента."""
+
+    student_id: uuid.UUID = Field(..., description="ID студента")
+    action: str = Field(..., max_length=255, description="Действие студента")
+
+
+class StudentHistoryLogCreateSchema(StudentHistoryLogBaseSchema, CreateBaseModel):
+    """Схема создания лога действий студента."""
+    pass
+
+
+class StudentHistoryLogUpdateSchema(UpdateBaseModel):
+    """Схема обновления лога действий студента."""
+
+    student_id: uuid.UUID | None = Field(None, description="ID студента")
+    action: str | None = Field(None, max_length=255, description="Действие студента")
+
+
+class StudentHistoryLogReadSchema(StudentHistoryLogBaseSchema):
+    """Схема чтения лога действий студента."""
+
+    id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+
     model_config = ConfigDict(from_attributes=True)
 
 

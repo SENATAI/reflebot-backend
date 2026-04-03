@@ -149,7 +149,7 @@ class AuthService(AuthServiceProtocol):
         
         # Конвертируем кнопки в схемы
         buttons = [
-            TelegramButtonSchema(text=btn.text, action=btn.action)
+            TelegramButtonSchema(text=btn.text, action=btn.action, url=btn.url)
             for btn in buttons_data
         ]
         

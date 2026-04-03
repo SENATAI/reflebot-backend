@@ -142,6 +142,10 @@ class Student(Base, TimestampMixin):
         back_populates="student",
         cascade="all, delete-orphan"
     )
+    history_logs: Mapped[list["StudentHistoryLog"]] = relationship(
+        back_populates="student",
+        cascade="all, delete-orphan",
+    )
     notification_deliveries: Mapped[list["NotificationDelivery"]] = relationship(
         back_populates="student",
         cascade="all, delete-orphan",
@@ -200,6 +204,23 @@ class StudentLection(Base, TimestampMixin):
     # Relationships
     student: Mapped["Student"] = relationship(back_populates="student_lections")
     lection_session: Mapped["LectionSession"] = relationship(back_populates="student_lections")
+
+
+class StudentHistoryLog(Base, TimestampMixin):
+    """Лог действий студента в Telegram workflow."""
+
+    __tablename__ = "student_history_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("students.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    action: Mapped[str] = mapped_column(sa.String(255), nullable=False, index=True)
+
+    student: Mapped["Student"] = relationship(back_populates="history_logs")
 
 
 class Teacher(Base, TimestampMixin):

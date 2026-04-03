@@ -11,6 +11,10 @@ from reflebot.settings import settings
 from .repositories.admin import AdminRepository, AdminRepositoryProtocol
 from .repositories.student import StudentRepository, StudentRepositoryProtocol
 from .repositories.student_course import StudentCourseRepository, StudentCourseRepositoryProtocol
+from .repositories.student_history_log import (
+    StudentHistoryLogRepository,
+    StudentHistoryLogRepositoryProtocol,
+)
 from .repositories.student_lection import StudentLectionRepository, StudentLectionRepositoryProtocol
 from .repositories.teacher import TeacherRepository, TeacherRepositoryProtocol
 from .repositories.teacher_lection import TeacherLectionRepository, TeacherLectionRepositoryProtocol
@@ -60,6 +64,7 @@ from .services.reflection_prompt_scan import (
     ReflectionPromptScanServiceProtocol,
 )
 from .services.student import StudentService, StudentServiceProtocol
+from .services.student_history_log import StudentHistoryLogService, StudentHistoryLogServiceProtocol
 from .services.teacher import TeacherService, TeacherServiceProtocol
 from .parsers.course_excel import CourseExcelParser
 from .parsers.student_csv import StudentCSVParser
@@ -139,6 +144,13 @@ def __get_student_course_repository(
 ) -> StudentCourseRepositoryProtocol:
     """Получить репозиторий привязок студентов к курсам."""
     return StudentCourseRepository(session=session)
+
+
+def __get_student_history_log_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> StudentHistoryLogRepositoryProtocol:
+    """Получить репозиторий логов действий студентов."""
+    return StudentHistoryLogRepository(session=session)
 
 
 def __get_student_lection_repository(
@@ -313,6 +325,13 @@ def get_student_service(
         admin_repository=admin_repository,
         teacher_repository=teacher_repository,
     )
+
+
+def get_student_history_log_service(
+    repository: StudentHistoryLogRepositoryProtocol = Depends(__get_student_history_log_repository),
+) -> StudentHistoryLogServiceProtocol:
+    """Получить сервис логов действий студента."""
+    return StudentHistoryLogService(repository=repository)
 
 
 def get_context_service(
@@ -612,6 +631,9 @@ def get_button_action_handler(
     reflection_workflow_service: ReflectionWorkflowServiceProtocol = Depends(
         get_reflection_workflow_service
     ),
+    student_history_log_service: StudentHistoryLogServiceProtocol = Depends(
+        get_student_history_log_service
+    ),
     view_lection_analytics_use_case: ViewLectionAnalyticsUseCaseProtocol = Depends(get_view_lection_analytics_use_case),
     view_student_analytics_use_case: ViewStudentAnalyticsUseCaseProtocol = Depends(get_view_student_analytics_use_case),
     view_reflection_details_use_case: ViewReflectionDetailsUseCaseProtocol = Depends(get_view_reflection_details_use_case),
@@ -630,6 +652,7 @@ def get_button_action_handler(
         pagination_service=pagination_service,
         manage_files_use_case=manage_files_use_case,
         reflection_workflow_service=reflection_workflow_service,
+        student_history_log_service=student_history_log_service,
         view_lection_analytics_use_case=view_lection_analytics_use_case,
         view_student_analytics_use_case=view_student_analytics_use_case,
         view_reflection_details_use_case=view_reflection_details_use_case,
@@ -645,6 +668,9 @@ def get_text_input_handler(
     attach_teachers_to_course_use_case: AttachTeachersToCourseUseCaseProtocol = Depends(get_attach_teachers_to_course_use_case),
     update_lection_use_case: UpdateLectionUseCaseProtocol = Depends(get_update_lection_use_case),
     manage_questions_use_case: ManageQuestionsUseCaseProtocol = Depends(get_manage_questions_use_case),
+    student_history_log_service: StudentHistoryLogServiceProtocol = Depends(
+        get_student_history_log_service
+    ),
     button_handler: ButtonActionHandlerProtocol = Depends(get_button_action_handler),
 ) -> TextInputHandlerProtocol:
     """Получить handler текстового ввода."""
@@ -657,6 +683,7 @@ def get_text_input_handler(
         attach_teachers_to_course_use_case=attach_teachers_to_course_use_case,
         update_lection_use_case=update_lection_use_case,
         manage_questions_use_case=manage_questions_use_case,
+        student_history_log_service=student_history_log_service,
         button_handler=button_handler,  # type: ignore[arg-type]
     )
 
@@ -669,6 +696,9 @@ def get_file_upload_handler(
     reflection_workflow_service: ReflectionWorkflowServiceProtocol = Depends(
         get_reflection_workflow_service
     ),
+    student_history_log_service: StudentHistoryLogServiceProtocol = Depends(
+        get_student_history_log_service
+    ),
     button_handler: ButtonActionHandlerProtocol = Depends(get_button_action_handler),
 ) -> FileUploadHandlerProtocol:
     """Получить handler загрузки файлов."""
@@ -678,6 +708,7 @@ def get_file_upload_handler(
         attach_students_to_course_use_case=attach_students_to_course_use_case,
         manage_files_use_case=manage_files_use_case,
         reflection_workflow_service=reflection_workflow_service,
+        student_history_log_service=student_history_log_service,
         button_handler=button_handler,  # type: ignore[arg-type]
     )
 
@@ -703,6 +734,10 @@ QuestionServiceDep = Annotated[QuestionServiceProtocol, Depends(get_question_ser
 DefaultQuestionServiceDep = Annotated[DefaultQuestionServiceProtocol, Depends(get_default_question_service)]
 TeacherServiceDep = Annotated[TeacherServiceProtocol, Depends(get_teacher_service)]
 StudentServiceDep = Annotated[StudentServiceProtocol, Depends(get_student_service)]
+StudentHistoryLogServiceDep = Annotated[
+    StudentHistoryLogServiceProtocol,
+    Depends(get_student_history_log_service),
+]
 UpdateLectionUseCaseDep = Annotated[UpdateLectionUseCaseProtocol, Depends(get_update_lection_use_case)]
 ManageQuestionsUseCaseDep = Annotated[
     ManageQuestionsUseCaseProtocol,

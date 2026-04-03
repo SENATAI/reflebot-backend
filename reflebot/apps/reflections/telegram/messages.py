@@ -327,17 +327,17 @@ class TelegramMessages:
     @staticmethod
     def get_reflection_recording_request() -> str:
         """Сообщение перед записью кружка."""
-        return "Записывайте кружок, я вас слушаю."
+        return "Загрузите кружок/видео, я вас слушаю."
 
     @staticmethod
     def get_reflection_video_saved() -> str:
         """Сообщение после успешной записи кружка."""
-        return "Кружок записан, что хотите сделать?"
+        return "Кружок/видео записан, что хотите сделать?"
 
     @staticmethod
     def get_reflection_video_deleted() -> str:
         """Сообщение после удаления кружка."""
-        return "Кружок удалён."
+        return "Кружок/видео удалён."
 
     @staticmethod
     def get_reflection_submission_completed() -> str:
@@ -354,7 +354,7 @@ class TelegramMessages:
         return (
             f"❓ Вопрос {index} из {total}\n\n"
             f"{question_text}\n\n"
-            "Запишите, пожалуйста, кружок с ответом."
+            "Загрузите кружок/видео, я вас слушаю."
         )
 
     @staticmethod
@@ -370,7 +370,7 @@ class TelegramMessages:
     @staticmethod
     def get_student_course_code_request() -> str:
         """Сообщение с просьбой ввести код курса."""
-        return "Привет студент, введи код курса."
+        return "Привет, студент, введи код курса."
 
     @staticmethod
     def get_student_course_fullname_request(course_name: str) -> str:

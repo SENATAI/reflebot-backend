@@ -12,6 +12,7 @@ from ..exceptions import CSVParsingError, ExcelParsingError
 from ..schemas import ActionResponseSchema
 from ..services.context import ContextServiceProtocol
 from ..services.reflection import ReflectionWorkflowServiceProtocol
+from ..services.student_history_log import StudentHistoryLogServiceProtocol
 from ..telegram.messages import TelegramMessages
 from ..use_cases.course import (
     AttachStudentsToCourseUseCaseProtocol,
@@ -45,12 +46,14 @@ class FileUploadHandler(FileUploadHandlerProtocol):
         manage_files_use_case: ManageFilesUseCaseProtocol,
         reflection_workflow_service: ReflectionWorkflowServiceProtocol,
         button_handler: ButtonActionHandler,
+        student_history_log_service: StudentHistoryLogServiceProtocol | None = None,
     ):
         self.context_service = context_service
         self.create_course_from_excel_use_case = create_course_from_excel_use_case
         self.attach_students_to_course_use_case = attach_students_to_course_use_case
         self.manage_files_use_case = manage_files_use_case
         self.reflection_workflow_service = reflection_workflow_service
+        self.student_history_log_service = student_history_log_service
         self.button_handler = button_handler
 
     async def handle(
@@ -78,7 +81,14 @@ class FileUploadHandler(FileUploadHandlerProtocol):
                         "Для кружка нужен Telegram file_id.",
                     )
                 roles = await self.button_handler.resolve_roles(telegram_id)
-                self.button_handler._require_roles_student(roles)
+                student = self.button_handler._require_roles_student(roles)
+                if self.student_history_log_service is not None:
+                    action_name = (
+                        "student_upload_qa_video"
+                        if data.get("stage") == "question"
+                        else "student_upload_reflection_video"
+                    )
+                    await self.student_history_log_service.log_action(student.id, action_name)
                 updated_data = self.reflection_workflow_service.add_video_to_draft(
                     data,
                     telegram_file_id,

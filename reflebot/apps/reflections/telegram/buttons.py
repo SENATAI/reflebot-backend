@@ -10,7 +10,8 @@ class TelegramButton(BaseModel):
     """Модель кнопки Telegram."""
     
     text: str
-    action: str
+    action: str | None = None
+    url: str | None = None
 
 
 class TelegramButtonsProtocol(Protocol):
@@ -28,6 +29,8 @@ class TelegramButtonsProtocol(Protocol):
 
 class TelegramButtons:
     """Кнопки для Telegram бота."""
+
+    TECH_SUPPORT_URL = "https://t.me/mark0vartem"
     
     # Действия для администратора
     ADMIN_CREATE_ADMIN = "admin_create_admin"
@@ -142,7 +145,12 @@ class TelegramButtons:
                 ),
             ])
         
-        # Для студента кнопок нет
+        buttons.append(
+            TelegramButton(
+                text="🛠 Тех. Поддержка",
+                url=TelegramButtons.TECH_SUPPORT_URL,
+            )
+        )
         
         return buttons
     
@@ -162,6 +170,10 @@ class TelegramButtons:
                 text="📖 Курсы",
                 action=TelegramButtons.ADMIN_VIEW_COURSES
             ),
+            TelegramButton(
+                text="🛠 Тех. Поддержка",
+                url=TelegramButtons.TECH_SUPPORT_URL,
+            ),
         ]
     
     @staticmethod
@@ -175,6 +187,10 @@ class TelegramButtons:
             TelegramButton(
                 text="📅 Ближайшая лекция",
                 action=TelegramButtons.TEACHER_NEXT_LECTION
+            ),
+            TelegramButton(
+                text="🛠 Тех. Поддержка",
+                url=TelegramButtons.TECH_SUPPORT_URL,
             ),
         ]
     
@@ -429,7 +445,7 @@ class TelegramButtons:
     def create_start_reflection_button(lection_id: str) -> TelegramButton:
         """Создать кнопку старта workflow рефлексии по лекции."""
         return TelegramButton(
-            text="🎥 Записать кружок",
+            text="🎥 Загрузить кружок/видео",
             action=f"{TelegramButtons.STUDENT_START_REFLECTION}:{lection_id}",
         )
 
@@ -447,11 +463,11 @@ class TelegramButtons:
                 action=TelegramButtons.STUDENT_SUBMIT_REFLECTION,
             ),
             TelegramButton(
-                text="🗑 Удалить кружок",
+                text="🗑 Удалить кружок/видео",
                 action=TelegramButtons.STUDENT_DELETE_REFLECTION_VIDEO,
             ),
             TelegramButton(
-                text="➕ Добавить ещё один кружок",
+                text="➕ Добавить ещё один кружок/видео",
                 action=TelegramButtons.STUDENT_ADD_REFLECTION_VIDEO,
             ),
         ]
@@ -461,7 +477,7 @@ class TelegramButtons:
         """Получить кнопку записи ответа на вопрос."""
         return [
             TelegramButton(
-                text="🎥 Записать кружок",
+                text="🎥 Загрузить кружок/видео",
                 action=TelegramButtons.STUDENT_RECORD_QA_VIDEO,
             ),
         ]
@@ -475,11 +491,11 @@ class TelegramButtons:
                 action=TelegramButtons.STUDENT_SUBMIT_QA,
             ),
             TelegramButton(
-                text="🗑 Удалить кружок",
+                text="🗑 Удалить кружок/видео",
                 action=TelegramButtons.STUDENT_DELETE_QA_VIDEO,
             ),
             TelegramButton(
-                text="➕ Добавить ещё один кружок",
+                text="➕ Добавить ещё один кружок/видео",
                 action=TelegramButtons.STUDENT_ADD_QA_VIDEO,
             ),
         ]

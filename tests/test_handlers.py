@@ -127,6 +127,7 @@ def build_button_handler() -> ButtonActionHandler:
         pagination_service=AsyncMock(),
         manage_files_use_case=AsyncMock(),
         reflection_workflow_service=AsyncMock(),
+        student_history_log_service=AsyncMock(),
         view_lection_analytics_use_case=AsyncMock(),
         view_student_analytics_use_case=AsyncMock(),
         view_reflection_details_use_case=AsyncMock(),
@@ -986,9 +987,63 @@ async def test_button_handler_starts_student_reflection_workflow():
         step="awaiting_reflection_video",
         data=handler.reflection_workflow_service.start_workflow.return_value,
     )
+    handler.student_history_log_service.log_action.assert_awaited_once_with(
+        student.id,
+        f"{TelegramButtons.STUDENT_START_REFLECTION}:{lection_id}",
+    )
     assert response.message == TelegramMessages.get_reflection_recording_request()
     assert response.awaiting_input is True
     assert response.buttons == []
+
+
+@pytest.mark.asyncio
+async def test_button_handler_renders_student_question_prompt_without_upload_button():
+    handler = build_button_handler()
+    question_id = uuid.uuid4()
+    context_data = {
+        "stage": "question",
+        "questions": [
+            {
+                "id": str(question_id),
+                "text": "Что было самым полезным?",
+            }
+        ],
+        "current_question_index": 0,
+        "current_question_videos": [],
+        "reflection_videos": ["video-note-1"],
+        "qa_answers": [],
+    }
+    handler.reflection_workflow_service.get_current_question = Mock(return_value={
+        "id": str(question_id),
+        "text": "Что было самым полезным?",
+    })
+
+    response = await handler.render_student_question_prompt(context_data)
+
+    assert response.message == TelegramMessages.get_question_reflection_prompt(
+        "Что было самым полезным?",
+        1,
+        1,
+    )
+    assert response.awaiting_input is True
+    assert response.buttons == []
+
+
+@pytest.mark.asyncio
+async def test_button_handler_logs_generic_back_action_for_student_role():
+    handler = build_button_handler()
+    student = create_student()
+    handler.admin_service.get_by_telegram_id.return_value = None
+    handler.student_service.get_by_telegram_id.return_value = student
+    handler.context_service.get_context.return_value = {"action": "course_menu", "data": {}}
+    handler.context_service.pop_navigation.return_value = None
+
+    await handler.handle(TelegramButtons.BACK, student.telegram_id)
+
+    handler.student_history_log_service.log_action.assert_awaited_once_with(
+        student.id,
+        TelegramButtons.BACK,
+    )
 
 
 @pytest.mark.asyncio
@@ -1022,6 +1077,7 @@ async def test_file_handler_saves_student_video_to_draft_and_returns_review_acti
         **context_service.get_context.return_value["data"],
         "reflection_videos": ["video-note-1"],
     }
+    student_history_log_service = AsyncMock()
     file_handler = FileUploadHandler(
         context_service=context_service,
         create_course_from_excel_use_case=AsyncMock(),
@@ -1029,6 +1085,7 @@ async def test_file_handler_saves_student_video_to_draft_and_returns_review_acti
         manage_files_use_case=AsyncMock(),
         reflection_workflow_service=reflection_workflow_service,
         button_handler=button_handler,
+        student_history_log_service=student_history_log_service,
     )
 
     response = await file_handler.handle(None, student.telegram_id, telegram_file_id="video-note-1")
@@ -1039,6 +1096,10 @@ async def test_file_handler_saves_student_video_to_draft_and_returns_review_acti
         action="student_reflection_workflow",
         step="review_reflection_videos",
         data=reflection_workflow_service.add_video_to_draft.return_value,
+    )
+    student_history_log_service.log_action.assert_awaited_once_with(
+        student.id,
+        "student_upload_reflection_video",
     )
     assert response.message == TelegramMessages.get_reflection_video_saved()
 
@@ -1243,7 +1304,9 @@ async def test_render_reflection_details_returns_dialog_messages_in_order():
         TelegramButtons.ADMIN_VIEW_COURSES,
         TelegramButtons.TEACHER_ANALYTICS,
         TelegramButtons.TEACHER_NEXT_LECTION,
+        None,
     ]
+    assert response.dialog_messages[-1].buttons[-1].url == TelegramButtons.TECH_SUPPORT_URL
 
 
 @pytest.mark.asyncio

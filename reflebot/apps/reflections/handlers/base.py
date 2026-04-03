@@ -90,7 +90,7 @@ class BaseHandler:
         roles = await self.resolve_roles(telegram_id)
         primary_user = roles.primary_user
         buttons = [
-            TelegramButtonSchema(text=button.text, action=button.action)
+            TelegramButtonSchema(text=button.text, action=button.action, url=button.url)
             for button in TelegramButtons.get_login_buttons(
                 is_admin=roles.is_admin,
                 is_teacher=roles.is_teacher,

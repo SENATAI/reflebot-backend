@@ -24,6 +24,7 @@ from ..services.pagination import PaginationServiceProtocol
 from ..services.question import QuestionServiceProtocol
 from ..services.reflection import ReflectionWorkflowServiceProtocol
 from ..services.student import StudentServiceProtocol
+from ..services.student_history_log import StudentHistoryLogServiceProtocol
 from ..services.teacher import TeacherServiceProtocol
 from ..telegram.buttons import TelegramButtons
 from ..telegram.messages import TelegramMessages
@@ -76,6 +77,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         view_lection_analytics_use_case: ViewLectionAnalyticsUseCaseProtocol,
         view_student_analytics_use_case: ViewStudentAnalyticsUseCaseProtocol,
         view_reflection_details_use_case: ViewReflectionDetailsUseCaseProtocol,
+        student_history_log_service: StudentHistoryLogServiceProtocol | None = None,
     ):
         super().__init__(
             admin_service,
@@ -92,6 +94,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         self.pagination_service = pagination_service
         self.manage_files_use_case = manage_files_use_case
         self.reflection_workflow_service = reflection_workflow_service
+        self.student_history_log_service = student_history_log_service
         self.view_lection_analytics_use_case = view_lection_analytics_use_case
         self.view_student_analytics_use_case = view_student_analytics_use_case
         self.view_reflection_details_use_case = view_reflection_details_use_case
@@ -103,6 +106,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
             context = await self.context_service.get_context(telegram_id) or {}
             context_data = context.get("data", {})
             roles = await self.resolve_roles(telegram_id)
+            await self._log_student_button_action(roles, action)
 
             if base_action == TelegramButtons.STUDENT_START_REFLECTION and parts:
                 return await self._start_student_reflection(
@@ -841,7 +845,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
             TelegramDialogMessageSchema(
                 message=TelegramMessages.get_next_actions_prompt(),
                 buttons=[
-                    TelegramButtonSchema(text=button.text, action=button.action)
+                    TelegramButtonSchema(text=button.text, action=button.action, url=button.url)
                     for button in TelegramButtons.get_login_buttons(
                         is_admin=roles.admin is not None,
                         is_teacher=roles.teacher is not None,
@@ -893,7 +897,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         self,
         context_data: dict,
     ) -> ActionResponseSchema:
-        """Показать студенту prompt записи кружка-ответа на текущий вопрос."""
+        """Показать студенту вопрос и сразу ожидать загрузку кружка/видео."""
         question = self.reflection_workflow_service.get_current_question(context_data)
         if question is None:
             return ActionResponseSchema(
@@ -907,10 +911,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                 current_index,
                 total,
             ),
-            buttons=[
-                TelegramButtonSchema(text=button.text, action=button.action)
-                for button in TelegramButtons.get_question_prompt_buttons()
-            ],
+            awaiting_input=True,
         )
 
     async def render_student_video_review(
@@ -1536,3 +1537,13 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         if roles.student is None:
             raise PermissionDeniedError("Недостаточно прав для выполнения действия студента")
         return roles.student
+
+    async def _log_student_button_action(
+        self,
+        roles: ResolvedRoles,
+        action: str,
+    ) -> None:
+        """Записать в историю любое callback-действие пользователя со student-role."""
+        if roles.student is None or self.student_history_log_service is None:
+            return
+        await self.student_history_log_service.log_action(roles.student.id, action)

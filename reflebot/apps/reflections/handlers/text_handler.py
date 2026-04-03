@@ -12,6 +12,7 @@ from ..datetime_utils import ensure_utc_datetime
 from ..schemas import ActionResponseSchema, AdminCreateSchema
 from ..services.admin import AdminServiceProtocol
 from ..services.context import ContextServiceProtocol
+from ..services.student_history_log import StudentHistoryLogServiceProtocol
 from ..telegram.buttons import TelegramButtons
 from ..telegram.messages import TelegramMessages
 from ..use_cases.admin import CreateAdminUseCaseProtocol
@@ -45,6 +46,7 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
         update_lection_use_case: UpdateLectionUseCaseProtocol,
         manage_questions_use_case: ManageQuestionsUseCaseProtocol,
         button_handler: ButtonActionHandler,
+        student_history_log_service: StudentHistoryLogServiceProtocol | None = None,
     ):
         super().__init__(
             admin_service,
@@ -58,6 +60,7 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
         self.update_lection_use_case = update_lection_use_case
         self.manage_questions_use_case = manage_questions_use_case
         self.button_handler = button_handler
+        self.student_history_log_service = student_history_log_service
 
     async def handle(self, text: str, telegram_id: int) -> ActionResponseSchema:
         """Обработать текст в соответствии с текущим контекстом."""
@@ -164,6 +167,7 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                     lection_ids = await self.button_handler.lection_service.get_lection_ids_by_course(course.id)
                     await self.student_service.attach_to_course([student.id], course.id)
                     await self.student_service.attach_to_lections([student.id], lection_ids)
+                    await self._log_student_action(student.id, "student_join_course")
                     await self.context_service.clear_context(telegram_id)
                     return ActionResponseSchema(
                         message=TelegramMessages.get_student_course_registered(course.name),
@@ -216,6 +220,7 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                 lection_ids = await self.button_handler.lection_service.get_lection_ids_by_course(course_id)
                 await self.student_service.attach_to_course([student.id], course_id)
                 await self.student_service.attach_to_lections([student.id], lection_ids)
+                await self._log_student_action(student.id, "student_register_course_by_code")
                 await self.context_service.clear_context(telegram_id)
                 return ActionResponseSchema(
                     message=TelegramMessages.get_student_course_registered(str(data["course_name"])),
@@ -509,3 +514,9 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
     def _is_valid_username(username: str) -> bool:
         """Проверить корректность telegram username в текстовом workflow."""
         return bool(username) and "@" not in username
+
+    async def _log_student_action(self, student_id: uuid.UUID, action: str) -> None:
+        """Записать действие студента, если сервис логирования подключён."""
+        if self.student_history_log_service is None:
+            return
+        await self.student_history_log_service.log_action(student_id, action)

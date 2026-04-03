@@ -95,7 +95,7 @@ class ReflectionWorkflowService(ReflectionWorkflowServiceProtocol):
         if datetime.now(timezone.utc) >= lection.deadline:
             raise ValidationError(
                 "deadline",
-                "Нельзя записать кружок по данной лекции, дедлайн закончился.",
+                "Нельзя отправить кружок/видео по данной лекции, дедлайн закончился.",
             )
 
         questions = await self.repository.get_questions_for_lection(lection_session_id)
@@ -137,7 +137,7 @@ class ReflectionWorkflowService(ReflectionWorkflowServiceProtocol):
         key = self._draft_key(data)
         draft_videos = list(data.get(key, []))
         if not draft_videos:
-            raise ValidationError("reflection_video", "Сначала нужно записать кружок.")
+            raise ValidationError("reflection_video", "Сначала нужно загрузить кружок/видео.")
         draft_videos.pop()
         data[key] = draft_videos
         return data
@@ -151,7 +151,7 @@ class ReflectionWorkflowService(ReflectionWorkflowServiceProtocol):
         data = self._clone_context_data(context_data)
         file_ids = list(data.get("reflection_videos", []))
         if not file_ids:
-            raise ValidationError("reflection_video", "Сначала нужно записать хотя бы один кружок.")
+            raise ValidationError("reflection_video", "Сначала нужно загрузить хотя бы один кружок/видео.")
 
         reflection = await self.repository.create_reflection_with_videos(
             student_id=student_id,
@@ -178,7 +178,7 @@ class ReflectionWorkflowService(ReflectionWorkflowServiceProtocol):
 
         file_ids = list(data.get("current_question_videos", []))
         if not file_ids:
-            raise ValidationError("qa_video", "Сначала нужно записать хотя бы один кружок.")
+            raise ValidationError("qa_video", "Сначала нужно записать хотя бы один кружок/видео.")
 
         qa_answers = list(data.get("qa_answers", []))
         qa_answers.append(
