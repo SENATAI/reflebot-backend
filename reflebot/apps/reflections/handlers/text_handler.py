@@ -167,7 +167,7 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                     lection_ids = await self.button_handler.lection_service.get_lection_ids_by_course(course.id)
                     await self.student_service.attach_to_course([student.id], course.id)
                     await self.student_service.attach_to_lections([student.id], lection_ids)
-                    await self._log_student_action(student.id, "student_join_course")
+                    await self._log_student_action(student.id, "student_join_course_completed")
                     await self.context_service.clear_context(telegram_id)
                     return ActionResponseSchema(
                         message=TelegramMessages.get_student_course_registered(course.name),
@@ -220,7 +220,7 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                 lection_ids = await self.button_handler.lection_service.get_lection_ids_by_course(course_id)
                 await self.student_service.attach_to_course([student.id], course_id)
                 await self.student_service.attach_to_lections([student.id], lection_ids)
-                await self._log_student_action(student.id, "student_register_course_by_code")
+                await self._log_student_action(student.id, "student_register_course_by_code_completed")
                 await self.context_service.clear_context(telegram_id)
                 return ActionResponseSchema(
                     message=TelegramMessages.get_student_course_registered(str(data["course_name"])),

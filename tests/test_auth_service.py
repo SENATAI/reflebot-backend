@@ -148,7 +148,7 @@ async def test_auth_service_gives_teacher_buttons_to_admin_without_teacher_role(
 
 
 @pytest.mark.asyncio
-async def test_auth_service_student_only_receives_support_button():
+async def test_auth_service_student_only_receives_join_course_and_support_buttons():
     admin_repository = AsyncMock()
     student_repository = AsyncMock()
     teacher_repository = AsyncMock()
@@ -176,10 +176,12 @@ async def test_auth_service_student_only_receives_support_button():
     assert response.is_student is True
     assert response.is_admin is False
     assert response.is_teacher is False
-    assert len(response.buttons) == 1
-    assert response.buttons[0].text == "🛠 Тех. Поддержка"
-    assert response.buttons[0].url == TelegramButtons.TECH_SUPPORT_URL
-    assert response.buttons[0].action is None
+    assert len(response.buttons) == 2
+    assert response.buttons[0].text == "🎓 Записаться на курс"
+    assert response.buttons[0].action == TelegramButtons.STUDENT_JOIN_COURSE
+    assert response.buttons[1].text == "🛠 Тех. Поддержка"
+    assert response.buttons[1].url == TelegramButtons.TECH_SUPPORT_URL
+    assert response.buttons[1].action is None
 
 
 @pytest.mark.asyncio

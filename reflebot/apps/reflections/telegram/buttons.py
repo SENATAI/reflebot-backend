@@ -90,6 +90,7 @@ class TelegramButtons:
     STUDENT_SUBMIT_QA = "student_submit_qa"
     STUDENT_DELETE_QA_VIDEO = "student_delete_qa_video"
     STUDENT_ADD_QA_VIDEO = "student_add_qa_video"
+    STUDENT_JOIN_COURSE = "student_join_course"
     
     # Навигация
     BACK = "back"
@@ -144,7 +145,15 @@ class TelegramButtons:
                     action=TelegramButtons.TEACHER_NEXT_LECTION
                 ),
             ])
-        
+
+        if is_student:
+            buttons.append(
+                TelegramButton(
+                    text="🎓 Записаться на курс",
+                    action=TelegramButtons.STUDENT_JOIN_COURSE,
+                )
+            )
+
         buttons.append(
             TelegramButton(
                 text="🛠 Тех. Поддержка",

@@ -114,6 +114,8 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                     roles,
                     uuid.UUID(parts[0]),
                 )
+            if base_action == TelegramButtons.STUDENT_JOIN_COURSE:
+                return await self._start_join_course(telegram_id, roles)
             if base_action == TelegramButtons.STUDENT_RECORD_REFLECTION_VIDEO:
                 return await self._request_student_reflection_video(
                     telegram_id,
@@ -962,6 +964,28 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         )
         return ActionResponseSchema(
             message=TelegramMessages.get_reflection_recording_request(),
+            awaiting_input=True,
+        )
+
+    async def _start_join_course(
+        self,
+        telegram_id: int,
+        roles: ResolvedRoles,
+    ) -> ActionResponseSchema:
+        """Запустить сценарий записи студента на курс по коду."""
+        student = self._require_roles_student(roles)
+        await self.context_service.set_context(
+            telegram_id,
+            action="join_course",
+            step="awaiting_course_code",
+            data={
+                "student_id": str(student.id),
+                "telegram_username": student.telegram_username,
+                "telegram_id": telegram_id,
+            },
+        )
+        return ActionResponseSchema(
+            message=TelegramMessages.get_join_course_code_request(),
             awaiting_input=True,
         )
 

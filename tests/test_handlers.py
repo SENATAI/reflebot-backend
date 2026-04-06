@@ -997,6 +997,32 @@ async def test_button_handler_starts_student_reflection_workflow():
 
 
 @pytest.mark.asyncio
+async def test_button_handler_join_course_prompts_student_for_code():
+    handler = build_button_handler()
+    student = create_student()
+    handler.student_service.get_by_telegram_id.return_value = student
+
+    response = await handler.handle(TelegramButtons.STUDENT_JOIN_COURSE, student.telegram_id)
+
+    handler.context_service.set_context.assert_awaited_once_with(
+        student.telegram_id,
+        action="join_course",
+        step="awaiting_course_code",
+        data={
+            "student_id": str(student.id),
+            "telegram_username": student.telegram_username,
+            "telegram_id": student.telegram_id,
+        },
+    )
+    handler.student_history_log_service.log_action.assert_awaited_once_with(
+        student.id,
+        TelegramButtons.STUDENT_JOIN_COURSE,
+    )
+    assert response.message == TelegramMessages.get_join_course_code_request()
+    assert response.awaiting_input is True
+
+
+@pytest.mark.asyncio
 async def test_button_handler_renders_student_question_prompt_without_upload_button():
     handler = build_button_handler()
     question_id = uuid.uuid4()
