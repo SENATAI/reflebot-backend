@@ -5,7 +5,12 @@
 from fastapi import APIRouter, File, Form, Header, UploadFile
 from pydantic import BaseModel, Field
 
-from ..depends import ButtonActionHandlerDep, FileUploadHandlerDep, TextInputHandlerDep
+from ..depends import (
+    ButtonActionHandlerDep,
+    FileUploadHandlerDep,
+    TelegramTrackedMessageServiceDep,
+    TextInputHandlerDep,
+)
 from ..schemas import ActionResponseSchema
 
 
@@ -16,6 +21,13 @@ class TextInputSchema(BaseModel):
     """Схема текстового ввода пользователя."""
 
     text: str = Field(..., description="Текст, отправленный пользователем")
+
+
+class MessageDeliveredSchema(BaseModel):
+    """Схема подтверждения отправки trackable-сообщения ботом."""
+
+    tracking_key: str = Field(..., description="Tracking key из backend response")
+    telegram_message_id: int = Field(..., description="Telegram message_id отправленного сообщения")
 
 
 @router.post("/button/{action}", response_model=ActionResponseSchema)
@@ -47,3 +59,17 @@ async def handle_file_upload(
 ) -> ActionResponseSchema:
     """Обработать загруженный файл через единый endpoint."""
     return await file_handler.handle(file, x_telegram_id, telegram_file_id=telegram_file_id)
+
+
+@router.post("/message-delivered", status_code=204)
+async def handle_message_delivered(
+    data: MessageDeliveredSchema,
+    tracked_message_service: TelegramTrackedMessageServiceDep,
+    x_telegram_id: int = Header(..., alias="X-Telegram-Id"),
+) -> None:
+    """Сохранить message_id trackable-сообщения, отправленного ботом."""
+    await tracked_message_service.track_message_delivery(
+        telegram_id=x_telegram_id,
+        tracking_key=data.tracking_key,
+        telegram_message_id=data.telegram_message_id,
+    )

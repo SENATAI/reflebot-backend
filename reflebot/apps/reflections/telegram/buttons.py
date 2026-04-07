@@ -86,6 +86,8 @@ class TelegramButtons:
     STUDENT_SUBMIT_REFLECTION = "student_submit_reflection"
     STUDENT_DELETE_REFLECTION_VIDEO = "student_delete_reflection_video"
     STUDENT_ADD_REFLECTION_VIDEO = "student_add_reflection_video"
+    STUDENT_APPEND_REFLECTION = "student_add_reflection"
+    STUDENT_SELECT_QUESTION = "student_select_question"
     STUDENT_RECORD_QA_VIDEO = "student_record_qa_video"
     STUDENT_SUBMIT_QA = "student_submit_qa"
     STUDENT_DELETE_QA_VIDEO = "student_delete_qa_video"
@@ -459,6 +461,22 @@ class TelegramButtons:
         )
 
     @staticmethod
+    def create_add_reflection_button(lection_id: str) -> TelegramButton:
+        """Создать кнопку дозаписи кружка/видео по лекции."""
+        return TelegramButton(
+            text="➕ Добавить кружок",
+            action=f"{TelegramButtons.STUDENT_APPEND_REFLECTION}:{lection_id}",
+        )
+
+    @staticmethod
+    def create_support_button() -> TelegramButton:
+        """Создать кнопку перехода в техподдержку."""
+        return TelegramButton(
+            text="🛠 Тех. Поддержка",
+            url=TelegramButtons.TECH_SUPPORT_URL,
+        )
+
+    @staticmethod
     def get_reflection_prompt_buttons(lection_id: str) -> list[TelegramButton]:
         """Получить кнопку старта рефлексии по лекции."""
         return [TelegramButtons.create_start_reflection_button(lection_id)]
@@ -492,6 +510,18 @@ class TelegramButtons:
         ]
 
     @staticmethod
+    def create_question_selection_button(
+        question_id: str,
+        question_text: str,
+        index: int,
+    ) -> TelegramButton:
+        """Создать кнопку выбора конкретного вопроса."""
+        return TelegramButton(
+            text=f"Вопрос {index}",
+            action=f"{TelegramButtons.STUDENT_SELECT_QUESTION}:{question_id}",
+        )
+
+    @staticmethod
     def get_question_review_buttons() -> list[TelegramButton]:
         """Получить кнопки после записи кружка ответа на вопрос."""
         return [
@@ -508,3 +538,13 @@ class TelegramButtons:
                 action=TelegramButtons.STUDENT_ADD_QA_VIDEO,
             ),
         ]
+
+    @staticmethod
+    def get_reflection_status_buttons(
+        lection_id: str,
+        deadline_active: bool,
+    ) -> list[TelegramButton]:
+        """Получить кнопки итогового статуса рефлексии по лекции."""
+        if deadline_active:
+            return [TelegramButtons.create_add_reflection_button(lection_id)]
+        return [TelegramButtons.create_support_button()]

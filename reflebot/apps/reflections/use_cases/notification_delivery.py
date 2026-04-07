@@ -9,11 +9,15 @@ from typing import Protocol
 
 from ..repositories.notification_delivery import NotificationDeliveryRepositoryProtocol
 from ..repositories.student import StudentRepositoryProtocol
-from ..schemas import ReflectionPromptCommandSchema
+from ..schemas import ReflectionPromptCommandSchema, ReflectionPromptDeadlineUpdateCommandSchema
 from ..services.notification_delivery import NotificationDeliveryServiceProtocol
 from ..services.notification_publisher import NotificationCommandPublisherProtocol
+from ..services.reflection import ReflectionWorkflowServiceProtocol
 from ..services.reflection_prompt_message import ReflectionPromptMessageServiceProtocol
 from ..services.reflection_prompt_scan import ReflectionPromptScanServiceProtocol
+from ..services.telegram_tracked_message import TelegramTrackedMessageServiceProtocol
+from ..telegram.buttons import TelegramButtons
+from ..telegram.messages import TelegramMessages
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,14 @@ class RetryFailedReflectionPromptsUseCaseProtocol(Protocol):
 
     async def __call__(self) -> int:
         """Повторно опубликовать failed доставки."""
+        ...
+
+
+class PublishExpiredReflectionPromptUpdatesUseCaseProtocol(Protocol):
+    """Протокол use case публикации edit-команд после дедлайна."""
+
+    async def __call__(self, now: datetime | None = None) -> int:
+        """Опубликовать update-команды для уже отправленных prompt-сообщений."""
         ...
 
 
@@ -253,3 +265,161 @@ class RetryFailedReflectionPromptsUseCase(RetryFailedReflectionPromptsUseCasePro
                 },
             )
         return published
+
+
+class PublishExpiredReflectionPromptUpdatesUseCase(
+    PublishExpiredReflectionPromptUpdatesUseCaseProtocol
+):
+    """Use case публикации edit-команд для prompt-сообщений после дедлайна."""
+
+    def __init__(
+        self,
+        notification_delivery_repository: NotificationDeliveryRepositoryProtocol,
+        notification_delivery_service: NotificationDeliveryServiceProtocol,
+        telegram_tracked_message_service: TelegramTrackedMessageServiceProtocol,
+        student_repository: StudentRepositoryProtocol,
+        reflection_workflow_service: ReflectionWorkflowServiceProtocol,
+        publisher: NotificationCommandPublisherProtocol,
+        publish_batch_size: int,
+    ):
+        self.notification_delivery_repository = notification_delivery_repository
+        self.notification_delivery_service = notification_delivery_service
+        self.telegram_tracked_message_service = telegram_tracked_message_service
+        self.student_repository = student_repository
+        self.reflection_workflow_service = reflection_workflow_service
+        self.publisher = publisher
+        self.publish_batch_size = publish_batch_size
+
+    async def __call__(self, now: datetime | None = None) -> int:
+        """Опубликовать update-команды для истекших prompt-сообщений."""
+        current_time = now or datetime.now(timezone.utc)
+        deadline_before = current_time - timedelta(minutes=1)
+        deliveries = await self.notification_delivery_repository.get_deadline_update_batch(
+            limit=self.publish_batch_size,
+            deadline_before=deadline_before,
+        )
+        published = 0
+        for delivery in deliveries:
+            if delivery.telegram_message_id is None:
+                continue
+            student = await self.student_repository.get(delivery.student_id)
+            if student.telegram_id is None:
+                continue
+            status = await self.reflection_workflow_service.get_reflection_status(
+                delivery.student_id,
+                delivery.lection_session_id,
+            )
+            try:
+                await self._publish_deadline_update_command(
+                    delivery_id=delivery.id,
+                    student_id=delivery.student_id,
+                    telegram_id=student.telegram_id,
+                    telegram_message_id=delivery.telegram_message_id,
+                    lection_session_id=delivery.lection_session_id,
+                    status=status,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to publish reflection prompt deadline update command.",
+                    extra={
+                        "delivery_id": str(delivery.id),
+                        "student_id": str(delivery.student_id),
+                        "lection_session_id": str(delivery.lection_session_id),
+                        "telegram_message_id": delivery.telegram_message_id,
+                    },
+                )
+                continue
+            await self.notification_delivery_service.mark_deadline_message_updated(
+                delivery.id,
+                current_time,
+            )
+            published += 1
+        tracked_messages = await self.telegram_tracked_message_service.get_deadline_update_batch(
+            limit=self.publish_batch_size,
+            deadline_before=deadline_before,
+        )
+        for tracked_message in tracked_messages:
+            status = await self.reflection_workflow_service.get_reflection_status(
+                tracked_message.student_id,
+                tracked_message.lection_session_id,
+            )
+            try:
+                await self._publish_deadline_update_command(
+                    delivery_id=tracked_message.notification_delivery_id,
+                    student_id=tracked_message.student_id,
+                    telegram_id=tracked_message.telegram_id,
+                    telegram_message_id=tracked_message.telegram_message_id,
+                    lection_session_id=tracked_message.lection_session_id,
+                    status=status,
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to publish tracked reflection status deadline update command.",
+                    extra={
+                        "delivery_id": str(tracked_message.notification_delivery_id),
+                        "student_id": str(tracked_message.student_id),
+                        "lection_session_id": str(tracked_message.lection_session_id),
+                        "telegram_message_id": tracked_message.telegram_message_id,
+                    },
+                )
+                continue
+            await self.telegram_tracked_message_service.mark_deadline_message_updated(
+                tracked_message.id,
+                current_time,
+            )
+            published += 1
+        return published
+
+    async def _publish_deadline_update_command(
+        self,
+        delivery_id,
+        student_id,
+        telegram_id: int,
+        telegram_message_id: int,
+        lection_session_id,
+        status: dict[str, object],
+    ) -> None:
+        """Опубликовать команду редактирования сообщения после дедлайна."""
+        command = ReflectionPromptDeadlineUpdateCommandSchema(
+            delivery_id=delivery_id,
+            student_id=student_id,
+            telegram_id=telegram_id,
+            telegram_message_id=telegram_message_id,
+            lection_session_id=lection_session_id,
+            message_text=self._build_deadline_update_message(status),
+            parse_mode="HTML",
+            buttons=self._build_deadline_update_buttons(status),
+        )
+        await self.publisher.publish_reflection_prompt_deadline_update(command)
+
+    @staticmethod
+    def _build_deadline_update_message(status: dict[str, object]) -> str:
+        """Построить текст edit-сообщения после дедлайна."""
+        lection_topic = str(status["lection_topic"])
+        deadline = datetime.fromisoformat(str(status["lection_deadline"]))
+        recorded_videos_count = int(status.get("recorded_videos_count", 0))
+        if recorded_videos_count > 0:
+            return TelegramMessages.get_reflection_status_expired(
+                lection_topic,
+                deadline,
+                recorded_videos_count,
+            )
+        return TelegramMessages.get_reflection_status_expired_without_videos(
+            lection_topic,
+            deadline,
+        )
+
+    @staticmethod
+    def _build_deadline_update_buttons(status: dict[str, object]) -> list[dict[str, str | None]]:
+        """Построить кнопки edit-сообщения после дедлайна."""
+        return [
+            {
+                "text": button.text,
+                "action": button.action,
+                "url": button.url,
+            }
+            for button in TelegramButtons.get_reflection_status_buttons(
+                str(status["lection_id"]),
+                deadline_active=False,
+            )
+        ]

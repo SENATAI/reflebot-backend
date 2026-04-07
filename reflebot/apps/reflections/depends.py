@@ -26,6 +26,10 @@ from .repositories.notification_delivery import (
     NotificationDeliveryRepository,
     NotificationDeliveryRepositoryProtocol,
 )
+from .repositories.telegram_tracked_message import (
+    TelegramTrackedMessageRepository,
+    TelegramTrackedMessageRepositoryProtocol,
+)
 from .repositories.reflection import (
     ReflectionWorkflowRepository,
     ReflectionWorkflowRepositoryProtocol,
@@ -65,6 +69,10 @@ from .services.reflection_prompt_scan import (
 )
 from .services.student import StudentService, StudentServiceProtocol
 from .services.student_history_log import StudentHistoryLogService, StudentHistoryLogServiceProtocol
+from .services.telegram_tracked_message import (
+    TelegramTrackedMessageService,
+    TelegramTrackedMessageServiceProtocol,
+)
 from .services.teacher import TeacherService, TeacherServiceProtocol
 from .parsers.course_excel import CourseExcelParser
 from .parsers.student_csv import StudentCSVParser
@@ -100,6 +108,8 @@ from .use_cases.analytics import (
     ViewStudentAnalyticsUseCaseProtocol,
 )
 from .use_cases.notification_delivery import (
+    PublishExpiredReflectionPromptUpdatesUseCase,
+    PublishExpiredReflectionPromptUpdatesUseCaseProtocol,
     PublishPendingReflectionPromptsUseCase,
     PublishPendingReflectionPromptsUseCaseProtocol,
     RetryFailedReflectionPromptsUseCase,
@@ -193,6 +203,13 @@ def __get_notification_delivery_repository(
 ) -> NotificationDeliveryRepositoryProtocol:
     """Получить репозиторий доставок уведомлений."""
     return NotificationDeliveryRepository(session=session)
+
+
+def __get_telegram_tracked_message_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> TelegramTrackedMessageRepositoryProtocol:
+    """Получить репозиторий отслеживаемых Telegram-сообщений."""
+    return TelegramTrackedMessageRepository(session=session)
 
 
 def __get_reflection_workflow_repository(
@@ -332,6 +349,23 @@ def get_student_history_log_service(
 ) -> StudentHistoryLogServiceProtocol:
     """Получить сервис логов действий студента."""
     return StudentHistoryLogService(repository=repository)
+
+
+def get_telegram_tracked_message_service(
+    repository: TelegramTrackedMessageRepositoryProtocol = Depends(
+        __get_telegram_tracked_message_repository
+    ),
+    student_repository: StudentRepositoryProtocol = Depends(__get_student_repository),
+    notification_delivery_repository: NotificationDeliveryRepositoryProtocol = Depends(
+        __get_notification_delivery_repository
+    ),
+) -> TelegramTrackedMessageServiceProtocol:
+    """Получить сервис отслеживаемых Telegram-сообщений."""
+    return TelegramTrackedMessageService(
+        repository=repository,
+        student_repository=student_repository,
+        notification_delivery_repository=notification_delivery_repository,
+    )
 
 
 def get_context_service(
@@ -616,6 +650,34 @@ def get_retry_failed_reflection_prompts_use_case(
     )
 
 
+def get_publish_expired_reflection_prompt_updates_use_case(
+    notification_delivery_repository: NotificationDeliveryRepositoryProtocol = Depends(
+        __get_notification_delivery_repository
+    ),
+    notification_delivery_service: NotificationDeliveryServiceProtocol = Depends(
+        get_notification_delivery_service
+    ),
+    telegram_tracked_message_service: TelegramTrackedMessageServiceProtocol = Depends(
+        get_telegram_tracked_message_service
+    ),
+    student_repository: StudentRepositoryProtocol = Depends(__get_student_repository),
+    reflection_workflow_service: ReflectionWorkflowServiceProtocol = Depends(
+        get_reflection_workflow_service
+    ),
+    publisher: NotificationCommandPublisherProtocol = Depends(get_notification_command_publisher),
+) -> PublishExpiredReflectionPromptUpdatesUseCaseProtocol:
+    """Получить use case обновления prompt-сообщений после дедлайна."""
+    return PublishExpiredReflectionPromptUpdatesUseCase(
+        notification_delivery_repository=notification_delivery_repository,
+        notification_delivery_service=notification_delivery_service,
+        telegram_tracked_message_service=telegram_tracked_message_service,
+        student_repository=student_repository,
+        reflection_workflow_service=reflection_workflow_service,
+        publisher=publisher,
+        publish_batch_size=settings.celery.publish_batch_size,
+    )
+
+
 def get_button_action_handler(
     context_service: ContextServiceProtocol = Depends(get_context_service),
     admin_service: AdminServiceProtocol = Depends(get_admin_service),
@@ -633,6 +695,9 @@ def get_button_action_handler(
     ),
     student_history_log_service: StudentHistoryLogServiceProtocol = Depends(
         get_student_history_log_service
+    ),
+    telegram_tracked_message_service: TelegramTrackedMessageServiceProtocol = Depends(
+        get_telegram_tracked_message_service
     ),
     view_lection_analytics_use_case: ViewLectionAnalyticsUseCaseProtocol = Depends(get_view_lection_analytics_use_case),
     view_student_analytics_use_case: ViewStudentAnalyticsUseCaseProtocol = Depends(get_view_student_analytics_use_case),
@@ -653,6 +718,7 @@ def get_button_action_handler(
         manage_files_use_case=manage_files_use_case,
         reflection_workflow_service=reflection_workflow_service,
         student_history_log_service=student_history_log_service,
+        telegram_tracked_message_service=telegram_tracked_message_service,
         view_lection_analytics_use_case=view_lection_analytics_use_case,
         view_student_analytics_use_case=view_student_analytics_use_case,
         view_reflection_details_use_case=view_reflection_details_use_case,
@@ -781,6 +847,10 @@ RetryFailedReflectionPromptsUseCaseDep = Annotated[
     RetryFailedReflectionPromptsUseCaseProtocol,
     Depends(get_retry_failed_reflection_prompts_use_case),
 ]
+PublishExpiredReflectionPromptUpdatesUseCaseDep = Annotated[
+    PublishExpiredReflectionPromptUpdatesUseCaseProtocol,
+    Depends(get_publish_expired_reflection_prompt_updates_use_case),
+]
 DeliveryResultConsumerDep = Annotated[
     DeliveryResultConsumerProtocol,
     Depends(get_delivery_result_consumer),
@@ -800,5 +870,9 @@ ViewReflectionDetailsUseCaseDep = Annotated[
 ButtonActionHandlerDep = Annotated[ButtonActionHandlerProtocol, Depends(get_button_action_handler)]
 TextInputHandlerDep = Annotated[TextInputHandlerProtocol, Depends(get_text_input_handler)]
 FileUploadHandlerDep = Annotated[FileUploadHandlerProtocol, Depends(get_file_upload_handler)]
+TelegramTrackedMessageServiceDep = Annotated[
+    TelegramTrackedMessageServiceProtocol,
+    Depends(get_telegram_tracked_message_service),
+]
 CourseExcelParserDep = Annotated[FileParserProtocol, Depends(get_course_excel_parser)]
 StudentCSVParserDep = Annotated[FileParserProtocol, Depends(get_student_csv_parser)]

@@ -13,6 +13,7 @@ from ..schemas import (
     TelegramButtonSchema,
     TelegramDialogMessageSchema,
     TelegramFileReferenceSchema,
+    TelegramMessageTrackingSchema,
 )
 from ..services.admin import AdminServiceProtocol
 from ..services.context import ContextServiceProtocol
@@ -25,6 +26,7 @@ from ..services.question import QuestionServiceProtocol
 from ..services.reflection import ReflectionWorkflowServiceProtocol
 from ..services.student import StudentServiceProtocol
 from ..services.student_history_log import StudentHistoryLogServiceProtocol
+from ..services.telegram_tracked_message import TelegramTrackedMessageServiceProtocol
 from ..services.teacher import TeacherServiceProtocol
 from ..telegram.buttons import TelegramButtons
 from ..telegram.messages import TelegramMessages
@@ -78,6 +80,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         view_student_analytics_use_case: ViewStudentAnalyticsUseCaseProtocol,
         view_reflection_details_use_case: ViewReflectionDetailsUseCaseProtocol,
         student_history_log_service: StudentHistoryLogServiceProtocol | None = None,
+        telegram_tracked_message_service: TelegramTrackedMessageServiceProtocol | None = None,
     ):
         super().__init__(
             admin_service,
@@ -95,6 +98,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         self.manage_files_use_case = manage_files_use_case
         self.reflection_workflow_service = reflection_workflow_service
         self.student_history_log_service = student_history_log_service
+        self.telegram_tracked_message_service = telegram_tracked_message_service
         self.view_lection_analytics_use_case = view_lection_analytics_use_case
         self.view_student_analytics_use_case = view_student_analytics_use_case
         self.view_reflection_details_use_case = view_reflection_details_use_case
@@ -130,7 +134,16 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                     roles,
                     context_data,
                 )
-            if base_action == TelegramButtons.STUDENT_ADD_REFLECTION_VIDEO:
+            if base_action in {
+                TelegramButtons.STUDENT_ADD_REFLECTION_VIDEO,
+                TelegramButtons.STUDENT_APPEND_REFLECTION,
+            }:
+                if parts:
+                    return await self._resume_student_reflection_upload(
+                        telegram_id,
+                        roles,
+                        uuid.UUID(parts[0]),
+                    )
                 return await self._request_student_reflection_video(
                     telegram_id,
                     roles,
@@ -141,6 +154,13 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                     telegram_id,
                     roles,
                     context_data,
+                )
+            if base_action == TelegramButtons.STUDENT_SELECT_QUESTION and parts:
+                return await self._select_student_question(
+                    telegram_id,
+                    roles,
+                    context_data,
+                    uuid.UUID(parts[0]),
                 )
             if base_action == TelegramButtons.STUDENT_SUBMIT_QA:
                 return await self._submit_student_question(telegram_id, roles, context_data)
@@ -895,6 +915,58 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
             ],
         )
 
+    async def render_student_reflection_status(
+        self,
+        status_data: dict,
+    ) -> ActionResponseSchema:
+        """Показать студенту текущий статус записи рефлексии по лекции."""
+        deadline_raw = status_data.get("lection_deadline")
+        deadline = (
+            datetime.fromisoformat(deadline_raw)
+            if isinstance(deadline_raw, str)
+            else deadline_raw
+        )
+        recorded_videos_count = int(status_data.get("recorded_videos_count", 0))
+        deadline_active = bool(status_data.get("deadline_active"))
+
+        if deadline_active:
+            message = TelegramMessages.get_reflection_status_active(
+                str(status_data["lection_topic"]),
+                deadline,
+                recorded_videos_count,
+            )
+        elif recorded_videos_count > 0:
+            message = TelegramMessages.get_reflection_status_expired(
+                str(status_data["lection_topic"]),
+                deadline,
+                recorded_videos_count,
+            )
+        else:
+            message = TelegramMessages.get_reflection_status_expired_without_videos(
+                str(status_data["lection_topic"]),
+                deadline,
+            )
+
+        message_tracking = None
+        if deadline_active and self.telegram_tracked_message_service is not None:
+            message_tracking = TelegramMessageTrackingSchema(
+                tracking_key=self.telegram_tracked_message_service.build_reflection_status_tracking_key(
+                    str(status_data["lection_id"])
+                )
+            )
+
+        return ActionResponseSchema(
+            message=message,
+            buttons=[
+                TelegramButtonSchema(text=button.text, action=button.action, url=button.url)
+                for button in TelegramButtons.get_reflection_status_buttons(
+                    str(status_data["lection_id"]),
+                    deadline_active=deadline_active,
+                )
+            ],
+            message_tracking=message_tracking,
+        )
+
     async def render_student_question_prompt(
         self,
         context_data: dict,
@@ -914,6 +986,27 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                 total,
             ),
             awaiting_input=True,
+        )
+
+    async def render_student_question_selection(
+        self,
+        context_data: dict,
+    ) -> ActionResponseSchema:
+        """Показать студенту список вопросов для выбора одного ответа."""
+        questions = context_data.get("questions", [])
+        return ActionResponseSchema(
+            message=TelegramMessages.get_question_selection_prompt(questions),
+            buttons=[
+                TelegramButtonSchema(text=button.text, action=button.action)
+                for button in [
+                    TelegramButtons.create_question_selection_button(
+                        str(question["id"]),
+                        str(question["text"]),
+                        index,
+                    )
+                    for index, question in enumerate(questions, start=1)
+                ]
+            ],
         )
 
     async def render_student_video_review(
@@ -955,6 +1048,39 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         lection_id: uuid.UUID,
     ) -> ActionResponseSchema:
         student = self._require_roles_student(roles)
+        status = await self.reflection_workflow_service.get_reflection_status(
+            student.id,
+            lection_id,
+        )
+        if (not status.get("deadline_active")) or status.get("recorded_videos_count", 0) > 0:
+            return await self.render_student_reflection_status(status)
+
+        data = await self.reflection_workflow_service.start_workflow(student.id, lection_id)
+        await self.context_service.set_context(
+            telegram_id,
+            action="student_reflection_workflow",
+            step="awaiting_reflection_video",
+            data=data,
+        )
+        return ActionResponseSchema(
+            message=TelegramMessages.get_reflection_recording_request(),
+            awaiting_input=True,
+        )
+
+    async def _resume_student_reflection_upload(
+        self,
+        telegram_id: int,
+        roles: ResolvedRoles,
+        lection_id: uuid.UUID,
+    ) -> ActionResponseSchema:
+        """Разрешить студенту дозаписать кружок/видео в уже существующую рефлексию."""
+        student = self._require_roles_student(roles)
+        status = await self.reflection_workflow_service.get_reflection_status(
+            student.id,
+            lection_id,
+        )
+        if not status.get("deadline_active"):
+            return await self.render_student_reflection_status(status)
         data = await self.reflection_workflow_service.start_workflow(student.id, lection_id)
         await self.context_service.set_context(
             telegram_id,
@@ -995,7 +1121,13 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         roles: ResolvedRoles,
         context_data: dict,
     ) -> ActionResponseSchema:
-        self._require_roles_student(roles)
+        student = self._require_roles_student(roles)
+        status = await self.reflection_workflow_service.get_reflection_status(
+            student.id,
+            uuid.UUID(str(context_data["lection_id"])),
+        )
+        if not status.get("deadline_active"):
+            return await self.render_student_reflection_status(status)
         await self.context_service.set_context(
             telegram_id,
             action="student_reflection_workflow",
@@ -1020,9 +1152,48 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         )
         if not updated_data.get("questions"):
             await self.context_service.clear_context(telegram_id)
-            return ActionResponseSchema(
-                message=TelegramMessages.get_reflection_submission_completed(),
+            return await self.render_student_reflection_status(
+                await self.reflection_workflow_service.get_reflection_status(
+                    student.id,
+                    uuid.UUID(str(updated_data["lection_id"])),
+                )
             )
+        if self.reflection_workflow_service.should_select_single_question(updated_data):
+            await self.context_service.set_context(
+                telegram_id,
+                action="student_reflection_workflow",
+                step="question_select",
+                data=updated_data,
+            )
+            return await self.render_student_question_selection(updated_data)
+        await self.context_service.set_context(
+            telegram_id,
+            action="student_reflection_workflow",
+            step="question_prompt",
+            data=updated_data,
+        )
+        return await self.render_student_question_prompt(updated_data)
+
+    async def _select_student_question(
+        self,
+        telegram_id: int,
+        roles: ResolvedRoles,
+        context_data: dict,
+        question_id: uuid.UUID,
+    ) -> ActionResponseSchema:
+        """Сохранить выбранный вопрос и перевести студента к записи ответа."""
+        student = self._require_roles_student(roles)
+        status = await self.reflection_workflow_service.get_reflection_status(
+            student.id,
+            uuid.UUID(str(context_data["lection_id"])),
+        )
+        if not status.get("deadline_active"):
+            await self.context_service.clear_context(telegram_id)
+            return await self.render_student_reflection_status(status)
+        updated_data = self.reflection_workflow_service.select_single_question(
+            context_data,
+            question_id,
+        )
         await self.context_service.set_context(
             telegram_id,
             action="student_reflection_workflow",
@@ -1064,7 +1235,14 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         roles: ResolvedRoles,
         context_data: dict,
     ) -> ActionResponseSchema:
-        self._require_roles_student(roles)
+        student = self._require_roles_student(roles)
+        status = await self.reflection_workflow_service.get_reflection_status(
+            student.id,
+            uuid.UUID(str(context_data["lection_id"])),
+        )
+        if not status.get("deadline_active"):
+            await self.context_service.clear_context(telegram_id)
+            return await self.render_student_reflection_status(status)
         await self.context_service.set_context(
             telegram_id,
             action="student_reflection_workflow",
@@ -1082,13 +1260,24 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         roles: ResolvedRoles,
         context_data: dict,
     ) -> ActionResponseSchema:
-        self._require_roles_student(roles)
+        student = self._require_roles_student(roles)
+        if self.reflection_workflow_service.get_current_question(context_data) is None:
+            await self.context_service.clear_context(telegram_id)
+            return await self.render_student_reflection_status(
+                await self.reflection_workflow_service.get_reflection_status(
+                    student.id,
+                    uuid.UUID(str(context_data["lection_id"])),
+                )
+            )
         updated_data = await self.reflection_workflow_service.submit_question_answer(context_data)
         if self.reflection_workflow_service.get_current_question(updated_data) is None:
             await self.reflection_workflow_service.finalize_question_answers(updated_data)
             await self.context_service.clear_context(telegram_id)
-            return ActionResponseSchema(
-                message=TelegramMessages.get_questions_completed_message(),
+            return await self.render_student_reflection_status(
+                await self.reflection_workflow_service.get_reflection_status(
+                    student.id,
+                    uuid.UUID(str(updated_data["lection_id"])),
+                )
             )
         await self.context_service.set_context(
             telegram_id,

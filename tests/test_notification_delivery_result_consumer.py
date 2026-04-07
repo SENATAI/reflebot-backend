@@ -57,7 +57,11 @@ async def test_notification_delivery_result_handler_marks_sent_on_success():
     result = await handler.handle(payload)
 
     assert result.status == NotificationDeliveryStatus.SENT
-    service.mark_sent.assert_called_once()
+    service.mark_sent.assert_called_once_with(
+        current.id,
+        payload.sent_at,
+        123,
+    )
 
 
 @pytest.mark.asyncio

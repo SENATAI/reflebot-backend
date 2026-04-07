@@ -3,6 +3,7 @@
 """
 
 import uuid
+import secrets
 from datetime import datetime
 
 import sqlalchemy as sa
@@ -13,6 +14,13 @@ from reflebot.core.db import Base
 from reflebot.core.models import TimestampMixin
 from .enums import AIAnalysisStatus, NotificationDeliveryStatus, NotificationDeliveryType
 
+COURSE_JOIN_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def _generate_course_join_code() -> str:
+    """Сгенерировать код курса для ORM-вставок вне CourseService."""
+    return "".join(secrets.choice(COURSE_JOIN_CODE_CHARS) for _ in range(4))
+
 
 class CourseSession(Base, TimestampMixin):
     """Сессия курса."""
@@ -21,7 +29,13 @@ class CourseSession(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
-    join_code: Mapped[str] = mapped_column(sa.String(4), nullable=False, unique=True, index=True)
+    join_code: Mapped[str] = mapped_column(
+        sa.String(64),
+        nullable=False,
+        unique=True,
+        index=True,
+        default=_generate_course_join_code,
+    )
     started_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
     ended_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
 
@@ -62,6 +76,11 @@ class LectionSession(Base, TimestampMixin):
         index=True,
     )
     deadline: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    one_question_from_list: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        default=False,
+    )
 
     # Relationships
     course_session: Mapped["CourseSession"] = relationship(back_populates="lection_sessions")
@@ -458,12 +477,61 @@ class NotificationDelivery(Base, TimestampMixin):
         index=True,
     )
     sent_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    telegram_message_id: Mapped[int | None] = mapped_column(sa.BigInteger, nullable=True)
+    deadline_message_updated_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+    )
     attempts: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
     # Relationships
     lection_session: Mapped["LectionSession"] = relationship(back_populates="notification_deliveries")
     student: Mapped["Student"] = relationship(back_populates="notification_deliveries")
+
+
+class TelegramTrackedMessage(Base, TimestampMixin):
+    """Отслеживаемое Telegram-сообщение для последующего автообновления."""
+
+    __tablename__ = "telegram_tracked_messages"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "notification_delivery_id",
+            "kind",
+            name="uq_telegram_tracked_messages_delivery_kind",
+        ),
+        sa.UniqueConstraint(
+            "telegram_message_id",
+            name="uq_telegram_tracked_messages_message_id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    telegram_id: Mapped[int] = mapped_column(sa.BigInteger, nullable=False, index=True)
+    telegram_message_id: Mapped[int] = mapped_column(sa.BigInteger, nullable=False, index=True)
+    student_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("students.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    lection_session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("lection_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    notification_delivery_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("notification_deliveries.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    kind: Mapped[str] = mapped_column(sa.String(64), nullable=False, index=True)
+    deadline_message_updated_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+    )
 
 
 class User(Base, TimestampMixin):

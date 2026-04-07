@@ -93,12 +93,16 @@ def create_student(name: str) -> StudentReadSchema:
 
 @pytest.mark.asyncio
 async def test_create_course_from_excel_use_case_parses_and_creates_course():
+    deadline = datetime.now(timezone.utc)
     parser = Mock()
     parser.parse.return_value = [
         {
             "topic": "Intro",
             "started_at": datetime.now(),
             "ended_at": datetime.now(),
+            "deadline": deadline,
+            "join_code": "AbCd",
+            "one_question_from_list": True,
             "questions": ["Что это такое?"],
         }
     ]
@@ -138,8 +142,11 @@ async def test_create_course_from_excel_use_case_parses_and_creates_course():
                 "topic": "Intro",
                 "started_at": parser.parse.return_value[0]["started_at"],
                 "ended_at": parser.parse.return_value[0]["ended_at"],
+                "deadline": deadline,
+                "one_question_from_list": True,
             }
         ],
+        join_code="AbCd",
     )
     question_service.create_question.assert_awaited_once_with(
         created_lection.id,

@@ -32,6 +32,10 @@ def build_celery_config(settings_obj: Settings) -> dict[str, Any]:
                 "task": "reflections.retry_failed_reflection_prompts",
                 "schedule": settings_obj.celery.retry_failed_interval_seconds,
             },
+            "publish_expired_reflection_prompt_updates": {
+                "task": "reflections.publish_expired_reflection_prompt_updates",
+                "schedule": settings_obj.celery.deadline_update_interval_seconds,
+            },
         },
     }
 

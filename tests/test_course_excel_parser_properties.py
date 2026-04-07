@@ -21,6 +21,39 @@ from reflebot.apps.reflections.exceptions import (
 )
 
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
+COURSE_HEADERS = [
+    'Тема лекции',
+    'Дата',
+    'Время',
+    'Дата дедлайна',
+    'Время дедлайна',
+    'Код курса',
+    'Один вопрос из списка',
+    'Вопросы',
+]
+
+
+def build_course_row(
+    topic: str,
+    date_value,
+    time_value: str,
+    deadline_date_value=None,
+    deadline_time_value: str = "23:59",
+    join_code: str = "ABCD",
+    one_question_from_list: str = "",
+    questions: str = "Что это такое?",
+) -> list:
+    """Собрать строку Excel нового формата."""
+    return [
+        topic,
+        date_value,
+        time_value,
+        deadline_date_value if deadline_date_value is not None else date_value,
+        deadline_time_value,
+        join_code,
+        one_question_from_list,
+        questions,
+    ]
 
 
 # Helper function to create Excel file from data
@@ -48,7 +81,17 @@ def create_excel_file(headers: list[str], rows: list[list]) -> io.BytesIO:
 
 
 @given(
-    missing_column=st.sampled_from(['Тема лекции', 'Дата', 'Время', 'Вопросы']),
+    missing_column=st.sampled_from(
+        [
+            'Тема лекции',
+            'Дата',
+            'Время',
+            'Дата дедлайна',
+            'Время дедлайна',
+            'Один вопрос из списка',
+            'Вопросы',
+        ]
+    ),
     extra_columns=st.lists(
         st.text(
             min_size=1,
@@ -68,7 +111,7 @@ def test_property_9_excel_parser_missing_column_validation(
     """
     Property 9: Excel Parser Column Validation
     
-    For any Excel файла без обязательных колонок (Тема лекции, Дата, Время, Вопросы),
+    For any Excel файла без обязательных колонок нового формата,
     парсер должен выбрасывать исключение с описанием ошибки.
     
     **Validates: Requirements 6.2, 6.6**
@@ -76,7 +119,15 @@ def test_property_9_excel_parser_missing_column_validation(
     parser = CourseExcelParser()
     
     # Create headers without the missing column
-    required_columns = ['Тема лекции', 'Дата', 'Время', 'Вопросы']
+    required_columns = [
+        'Тема лекции',
+        'Дата',
+        'Время',
+        'Дата дедлайна',
+        'Время дедлайна',
+        'Один вопрос из списка',
+        'Вопросы',
+    ]
     headers = [col for col in required_columns if col != missing_column]
     
     # Add extra columns to make it more realistic
@@ -132,9 +183,9 @@ def test_property_10_date_format_parsing(
         date_str = f"{year}-{month:02d}-{day:02d}"
     
     # Create Excel file with one lection
-    headers = ['Тема лекции', 'Дата', 'Время', 'Вопросы']
+    headers = COURSE_HEADERS
     rows = [
-        ['Test Lection', date_str, '10:00-12:00', 'Что это такое?']
+        build_course_row('Test Lection', date_str, '10:00-12:00')
     ]
     
     excel_file = create_excel_file(headers, rows)
@@ -189,9 +240,9 @@ def test_property_11_time_format_parsing(
     time_str = f"{start_hour:02d}:{start_minute:02d}{time_separator}{end_hour:02d}:{end_minute:02d}"
     
     # Create Excel file with one lection
-    headers = ['Тема лекции', 'Дата', 'Время', 'Вопросы']
+    headers = COURSE_HEADERS
     rows = [
-        ['Test Lection', '01.01.2024', time_str, 'Что это такое?']
+        build_course_row('Test Lection', '01.01.2024', time_str)
     ]
     
     excel_file = create_excel_file(headers, rows)
@@ -247,16 +298,13 @@ def test_parser_ignores_teacher_column(
     parser = CourseExcelParser()
     
     # Create headers with "Препод" column
-    headers = ['Тема лекции', 'Дата', 'Время', 'Вопросы', 'Препод']
+    headers = [*COURSE_HEADERS, 'Препод']
     
     # Create rows with teacher names
     rows = []
     for i in range(row_count):
         rows.append([
-            f'Lection {i}',
-            '01.01.2024',
-            '10:00-12:00',
-            'Что это такое?',
+            *build_course_row(f'Lection {i}', '01.01.2024', '10:00-12:00'),
             teacher_names[i],
         ])
     
@@ -288,11 +336,11 @@ def test_parser_handles_mixed_date_formats():
     parser = CourseExcelParser()
     
     # Create Excel file with different date formats
-    headers = ['Тема лекции', 'Дата', 'Время', 'Вопросы']
+    headers = COURSE_HEADERS
     rows = [
-        ['Lection 1', '01/15/2024', '10:00-12:00', 'Q1?'],  # MM/DD/YYYY
-        ['Lection 2', '16.01.2024', '14:00-16:00', 'Q2?'],  # DD.MM.YYYY
-        ['Lection 3', '2024-01-17', '10:00-12:00', 'Q3?'],  # YYYY-MM-DD
+        build_course_row('Lection 1', '01/15/2024', '10:00-12:00', '01/16/2024', '20:00', 'ABCD', '', 'Q1'),
+        build_course_row('Lection 2', '16.01.2024', '14:00-16:00', '17.01.2024', '20:00', 'ABCD', '', 'Q2'),
+        build_course_row('Lection 3', '2024-01-17', '10:00-12:00', '2024-01-18', '20:00', 'ABCD', '', 'Q3'),
     ]
     
     excel_file = create_excel_file(headers, rows)
@@ -310,12 +358,59 @@ def test_parser_handles_mixed_date_formats():
 def test_parser_normalizes_local_excel_datetimes_to_utc():
     """Парсер должен сохранять введённое московское время как UTC."""
     parser = CourseExcelParser()
-    headers = ['Тема лекции', 'Дата', 'Время', 'Вопросы']
-    rows = [['Test Lection', '01.01.2024', '10:00-12:00', 'Q1?']]
+    headers = COURSE_HEADERS
+    rows = [build_course_row('Test Lection', '01.01.2024', '10:00-12:00', '02.01.2024', '15:30', 'ABCD', '', 'Q1')]
 
     excel_file = create_excel_file(headers, rows)
 
     lections = parser.parse(excel_file)
+
+    assert lections[0]['started_at'] == datetime(2024, 1, 1, 7, 0, tzinfo=timezone.utc)
+    assert lections[0]['ended_at'] == datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc)
+    assert lections[0]['deadline'] == datetime(2024, 1, 2, 12, 30, tzinfo=timezone.utc)
+    assert lections[0]['join_code'] == "ABCD"
+
+
+def test_parser_accepts_deadline_time_with_seconds():
+    """Парсер должен принимать время дедлайна в формате HH:MM:SS."""
+    parser = CourseExcelParser()
+    headers = COURSE_HEADERS
+    rows = [
+        build_course_row(
+            'Test Lection',
+            '01.01.2024',
+            '10:00-12:00',
+            '02.01.2024',
+            '15:30:00',
+            'ABCD',
+            '',
+            'Q1',
+        )
+    ]
+
+    lections = parser.parse(create_excel_file(headers, rows))
+
+    assert lections[0]['deadline'] == datetime(2024, 1, 2, 12, 30, tzinfo=timezone.utc)
+
+
+def test_parser_accepts_lection_time_range_with_seconds():
+    """Парсер должен принимать диапазон времени лекции с секундами."""
+    parser = CourseExcelParser()
+    headers = COURSE_HEADERS
+    rows = [
+        build_course_row(
+            'Test Lection',
+            '01.01.2024',
+            '10:00:00-12:00:00',
+            '02.01.2024',
+            '15:30',
+            'ABCD',
+            '',
+            'Q1',
+        )
+    ]
+
+    lections = parser.parse(create_excel_file(headers, rows))
 
     assert lections[0]['started_at'] == datetime(2024, 1, 1, 7, 0, tzinfo=timezone.utc)
     assert lections[0]['ended_at'] == datetime(2024, 1, 1, 9, 0, tzinfo=timezone.utc)
@@ -331,7 +426,7 @@ def test_parser_empty_file():
     parser = CourseExcelParser()
     
     # Create empty Excel (only headers, no data)
-    headers = ['Тема лекции', 'Дата', 'Время', 'Вопросы']
+    headers = COURSE_HEADERS
     rows = []
     
     excel_file = create_excel_file(headers, rows)
@@ -350,9 +445,9 @@ def test_parser_invalid_date_format():
     parser = CourseExcelParser()
     
     # Create Excel with invalid date
-    headers = ['Тема лекции', 'Дата', 'Время', 'Вопросы']
+    headers = COURSE_HEADERS
     rows = [
-        ['Test Lection', 'invalid-date', '10:00-12:00', 'Q1?']
+        build_course_row('Test Lection', 'invalid-date', '10:00-12:00')
     ]
     
     excel_file = create_excel_file(headers, rows)
@@ -371,15 +466,132 @@ def test_parser_invalid_time_format():
     parser = CourseExcelParser()
     
     # Create Excel with invalid time
-    headers = ['Тема лекции', 'Дата', 'Время', 'Вопросы']
+    headers = COURSE_HEADERS
     rows = [
-        ['Test Lection', '01.01.2024', 'invalid-time', 'Q1?']
+        build_course_row('Test Lection', '01.01.2024', 'invalid-time')
     ]
     
     excel_file = create_excel_file(headers, rows)
     
     with pytest.raises((ExcelFileError, ExcelFileDateParseError)):
         parser.parse(excel_file)
+
+
+def test_parser_accepts_join_code_longer_than_four_characters():
+    """Парсер должен принимать код курса длиной больше 4 символов."""
+    parser = CourseExcelParser()
+    headers = COURSE_HEADERS
+    rows = [
+        build_course_row(
+            'Test Lection',
+            '01.01.2024',
+            '10:00-12:00',
+            '02.01.2024',
+            '15:30',
+            'BMGEN',
+            '',
+            'Q1',
+        )
+    ]
+
+    lections = parser.parse(create_excel_file(headers, rows))
+
+    assert lections[0]["join_code"] == "BMGEN"
+
+
+def test_parser_accepts_alphabetic_join_code_like_ideann():
+    """Парсер должен принимать обычный буквенный код курса."""
+    parser = CourseExcelParser()
+    headers = COURSE_HEADERS
+    rows = [
+        build_course_row(
+            'Test Lection',
+            '01.01.2024',
+            '10:00-12:00',
+            '02.01.2024',
+            '15:30',
+            'ideaNN',
+            '',
+            'Q1',
+        )
+    ]
+
+    lections = parser.parse(create_excel_file(headers, rows))
+
+    assert lections[0]["join_code"] == "ideaNN"
+
+
+def test_parser_rejects_join_code_shorter_than_four_characters():
+    """Парсер должен отклонять код курса короче 4 символов."""
+    parser = CourseExcelParser()
+    headers = COURSE_HEADERS
+    rows = [
+        build_course_row(
+            'Test Lection',
+            '01.01.2024',
+            '10:00-12:00',
+            '02.01.2024',
+            '15:30',
+            'ABC',
+            '',
+            'Q1',
+        )
+    ]
+
+    with pytest.raises(ExcelFileDateParseError) as exc_info:
+        parser.parse(create_excel_file(headers, rows))
+
+    assert "Код курса должен состоять минимум из 4 символов." in str(exc_info.value.detail)
+
+
+def test_parser_rejects_join_code_with_non_alphanumeric_symbols():
+    """Парсер должен отклонять код курса со спецсимволами."""
+    parser = CourseExcelParser()
+    headers = COURSE_HEADERS
+    rows = [
+        build_course_row(
+            'Test Lection',
+            '01.01.2024',
+            '10:00-12:00',
+            '02.01.2024',
+            '15:30',
+            'IDEA-NN',
+            '',
+            'Q1',
+        )
+    ]
+
+    with pytest.raises(ExcelFileDateParseError) as exc_info:
+        parser.parse(create_excel_file(headers, rows))
+
+    assert "Используйте только латинские буквы и цифры." in str(exc_info.value.detail)
+
+
+def test_parser_allows_missing_join_code_column_and_returns_none():
+    """Если колонки кода нет, parser должен позволить автогенерацию."""
+    parser = CourseExcelParser()
+    headers = [
+        'Тема лекции',
+        'Дата',
+        'Время',
+        'Дата дедлайна',
+        'Время дедлайна',
+        'Один вопрос из списка',
+        'Вопросы',
+    ]
+    rows = [[
+        'Test Lection',
+        '01.01.2024',
+        '10:00-12:00',
+        '02.01.2024',
+        '15:30',
+        '',
+        'Q1?',
+    ]]
+
+    lections = parser.parse(create_excel_file(headers, rows))
+
+    assert lections[0]["join_code"] is None
 
 
 # Property: Parser does not read course name from file
@@ -397,18 +609,130 @@ def test_parser_returns_empty_course_name(row_count):
     """
     parser = CourseExcelParser()
     
-    headers = ['Тема лекции', 'Дата', 'Время', 'Вопросы']
+    headers = COURSE_HEADERS
     rows = []
     for i in range(row_count):
-        rows.append([
-            f'Lection {i}',
-            '01.01.2024',
-            '10:00-12:00',
-            'Q1? Q2?',
-        ])
+        rows.append(
+            build_course_row(
+                f'Lection {i}',
+                '01.01.2024',
+                '10:00-12:00',
+                '02.01.2024',
+                '20:00',
+                'ABCD',
+                'нет',
+                '- Q1\n- Q2',
+            )
+        )
     
     excel_file = create_excel_file(headers, rows)
     
     # Parse should succeed
     lections = parser.parse(excel_file)
     assert len(lections) == row_count
+
+
+def test_parser_splits_questions_by_dash_marker():
+    """Парсер должен делить вопросы по маркеру новой строки '- '."""
+    parser = CourseExcelParser()
+
+    lections = parser.parse(
+        create_excel_file(
+            COURSE_HEADERS,
+            [
+                build_course_row(
+                    'Test Lection',
+                    '01.01.2024',
+                    '10:00-12:00',
+                    '02.01.2024',
+                    '20:00',
+                    'ABCD',
+                    'нет',
+                    '- Что запомнилось?\n- Что было сложным?',
+                )
+            ],
+        )
+    )
+
+    assert lections[0]['questions'] == [
+        'Что запомнилось?',
+        'Что было сложным?',
+    ]
+    assert lections[0]['one_question_from_list'] is False
+
+
+def test_parser_requires_one_question_flag_for_multiple_questions():
+    """Для нескольких вопросов нужно явно заполнить поле выбора одного вопроса."""
+    parser = CourseExcelParser()
+
+    with pytest.raises(ExcelFileDateParseError) as exc_info:
+        parser.parse(
+            create_excel_file(
+                COURSE_HEADERS,
+                [
+                    build_course_row(
+                        'Test Lection',
+                        '01.01.2024',
+                        '10:00-12:00',
+                        '02.01.2024',
+                        '20:00',
+                        'ABCD',
+                        '',
+                        '- Первый вопрос\n- Второй вопрос',
+                    )
+                ],
+            )
+        )
+
+    assert "Один вопрос из списка" in str(exc_info.value.detail)
+
+
+def test_parser_accepts_one_question_flag_yes_for_multiple_questions():
+    """При значении 'да' нужно сохранять сценарий выбора одного вопроса."""
+    parser = CourseExcelParser()
+
+    lections = parser.parse(
+        create_excel_file(
+            COURSE_HEADERS,
+            [
+                build_course_row(
+                    'Test Lection',
+                    '01.01.2024',
+                    '10:00-12:00',
+                    '02.01.2024',
+                    '20:00',
+                    'ABCD',
+                    'да',
+                    '- Первый вопрос\n- Второй вопрос',
+                )
+            ],
+        )
+    )
+
+    assert lections[0]['one_question_from_list'] is True
+
+
+def test_parser_allows_empty_one_question_flag_when_question_is_single():
+    """Для одного вопроса поле выбора из списка может быть пустым."""
+    parser = CourseExcelParser()
+
+    lections = parser.parse(
+        create_excel_file(
+            COURSE_HEADERS,
+            [
+                build_course_row(
+                    'Test Lection',
+                    '01.01.2024',
+                    '10:00-12:00',
+                    '02.01.2024',
+                    '20:00',
+                    'ABCD',
+                    '',
+                    'Один вопрос без списка',
+                )
+            ],
+        )
+    )
+
+    assert lections[0]['questions'] == ['Один вопрос без списка']
+    assert lections[0]['one_question_from_list'] is False

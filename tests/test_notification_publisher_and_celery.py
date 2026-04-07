@@ -9,7 +9,10 @@ import uuid
 
 import pytest
 
-from reflebot.apps.reflections.schemas import ReflectionPromptCommandSchema
+from reflebot.apps.reflections.schemas import (
+    ReflectionPromptCommandSchema,
+    ReflectionPromptDeadlineUpdateCommandSchema,
+)
 from reflebot.apps.reflections.services.notification_publisher import (
     NotificationCommandPublisher,
     SimpleAMQPMessage,
@@ -84,6 +87,44 @@ async def test_notification_command_publisher_declares_exchange_and_queue():
     connection.close.assert_called_once()
 
 
+@pytest.mark.asyncio
+async def test_notification_command_publisher_publishes_deadline_update_command():
+    connection = AsyncMock()
+    channel = AsyncMock()
+    exchange = AsyncMock()
+    queue = AsyncMock()
+    connection.channel.return_value = channel
+    channel.declare_exchange.return_value = exchange
+    channel.declare_queue.return_value = queue
+
+    async def connect_robust(_: str):
+        return connection
+
+    publisher = NotificationCommandPublisher(
+        rabbitmq=RabbitMQ(),
+        connect_robust=connect_robust,
+        message_factory=lambda body: SimpleAMQPMessage(body=body),
+    )
+    payload = ReflectionPromptDeadlineUpdateCommandSchema(
+        delivery_id=uuid.uuid4(),
+        student_id=uuid.uuid4(),
+        telegram_id=12345,
+        telegram_message_id=777,
+        lection_session_id=uuid.uuid4(),
+        message_text="expired",
+        parse_mode="HTML",
+        buttons=[],
+    )
+
+    await publisher.publish_reflection_prompt_deadline_update(payload)
+
+    channel.declare_exchange.assert_called_once()
+    channel.declare_queue.assert_called_once_with("bot.reflection-prompts", durable=True)
+    queue.bind.assert_called_once()
+    exchange.publish.assert_called_once()
+    connection.close.assert_called_once()
+
+
 def test_build_celery_config_uses_rabbitmq_dsn_and_schedule():
     settings_obj = build_settings()
 
@@ -93,6 +134,7 @@ def test_build_celery_config_uses_rabbitmq_dsn_and_schedule():
     assert config["task_default_queue"] == settings_obj.celery.task_default_queue
     assert "scan_due_reflection_prompts" in config["beat_schedule"]
     assert "retry_failed_reflection_prompts" in config["beat_schedule"]
+    assert "publish_expired_reflection_prompt_updates" in config["beat_schedule"]
 
 
 def test_create_celery_app_returns_configured_shim_when_celery_missing():
@@ -125,3 +167,4 @@ def test_celery_app_registers_reflection_prompt_tasks():
     assert "reflections.scan_due_reflection_prompts" in celery_app.tasks
     assert "reflections.publish_pending_reflection_prompts" in celery_app.tasks
     assert "reflections.retry_failed_reflection_prompts" in celery_app.tasks
+    assert "reflections.publish_expired_reflection_prompt_updates" in celery_app.tasks

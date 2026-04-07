@@ -21,7 +21,8 @@ from reflebot.apps.reflections.handlers.text_handler import TextInputHandler
 from reflebot.apps.reflections.schemas import AdminReadSchema
 from reflebot.apps.reflections.telegram.buttons import TelegramButtons
 from reflebot.apps.reflections.telegram.messages import TelegramMessages
-from reflebot.core.utils.exceptions import PermissionDeniedError
+from reflebot.apps.reflections.models import CourseSession
+from reflebot.core.utils.exceptions import ModelAlreadyExistsError, PermissionDeniedError
 
 TECHNICAL_DETAIL_STRATEGY = st.text(
     alphabet=string.ascii_letters + string.digits,
@@ -291,3 +292,37 @@ async def test_property_30_critical_error_clears_context_and_hides_details(detai
     context_service.clear_context.assert_called_once_with(1)
     assert response.message == TelegramMessages.get_generic_error()
     assert detail not in response.message
+
+
+@pytest.mark.asyncio
+async def test_file_handler_returns_friendly_message_for_duplicate_course_join_code():
+    """Дубликат кода курса должен возвращать понятное сообщение без очистки контекста."""
+    context_service = AsyncMock()
+    context_service.get_context.return_value = {
+        "action": "create_course",
+        "data": {"course_name": "Тестовый курс"},
+    }
+    button_handler = build_button_handler()
+    file_handler = FileUploadHandler(
+        context_service=context_service,
+        create_course_from_excel_use_case=AsyncMock(
+            side_effect=ModelAlreadyExistsError(
+                CourseSession,
+                "join_code",
+                "duplicate key for field: join_code",
+            )
+        ),
+        attach_students_to_course_use_case=AsyncMock(),
+        manage_files_use_case=AsyncMock(),
+        reflection_workflow_service=AsyncMock(),
+        button_handler=button_handler,
+    )
+
+    response = await file_handler.handle(
+        UploadFile(filename="course.xlsx", file=io.BytesIO(b"data")),
+        1,
+    )
+
+    assert response.awaiting_input is True
+    assert response.message == TelegramMessages.get_course_join_code_already_exists()
+    context_service.clear_context.assert_not_awaited()

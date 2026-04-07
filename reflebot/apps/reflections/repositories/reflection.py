@@ -72,6 +72,23 @@ class ReflectionWorkflowRepositoryProtocol(Protocol):
         """Создать ответы на вопросы и их кружки."""
         ...
 
+    async def get_reflection_video_file_ids(
+        self,
+        student_id: uuid.UUID,
+        lection_session_id: uuid.UUID,
+    ) -> list[str]:
+        """Получить file_id всех записанных кружков/видео по лекции."""
+        ...
+
+    async def append_videos_to_reflection(
+        self,
+        reflection_id: uuid.UUID,
+        file_ids: list[str],
+        submitted_at: datetime,
+    ) -> None:
+        """Добавить новые кружки/видео в уже существующую рефлексию."""
+        ...
+
 
 class ReflectionWorkflowRepository(ReflectionWorkflowRepositoryProtocol):
     """Репозиторий workflow рефлексии студента."""
@@ -198,3 +215,72 @@ class ReflectionWorkflowRepository(ReflectionWorkflowRepositoryProtocol):
             LectionQAReadSchema.model_validate(model, from_attributes=True)
             for model in created
         ]
+
+    async def get_reflection_video_file_ids(
+        self,
+        student_id: uuid.UUID,
+        lection_session_id: uuid.UUID,
+    ) -> list[str]:
+        """Получить file_id всех записанных кружков/видео по лекции и вопросам."""
+        async with self.session as s:
+            reflection_videos_stmt = (
+                sa.select(ReflectionVideo.file_id)
+                .join(
+                    LectionReflection,
+                    LectionReflection.id == ReflectionVideo.reflection_id,
+                )
+                .where(
+                    LectionReflection.student_id == student_id,
+                    LectionReflection.lection_session_id == lection_session_id,
+                )
+            )
+            qa_videos_stmt = (
+                sa.select(QAVideo.file_id)
+                .join(
+                    LectionQA,
+                    LectionQA.id == QAVideo.lection_qa_id,
+                )
+                .join(
+                    LectionReflection,
+                    LectionReflection.id == LectionQA.reflection_id,
+                )
+                .where(
+                    LectionReflection.student_id == student_id,
+                    LectionReflection.lection_session_id == lection_session_id,
+                )
+            )
+            stmt = sa.union_all(reflection_videos_stmt, qa_videos_stmt)
+            return list((await s.execute(stmt)).scalars().all())
+
+    async def append_videos_to_reflection(
+        self,
+        reflection_id: uuid.UUID,
+        file_ids: list[str],
+        submitted_at: datetime,
+    ) -> None:
+        """Добавить новые кружки/видео в уже существующую рефлексию."""
+        if not file_ids:
+            return
+
+        async with self.session as s, s.begin():
+            last_order_stmt = (
+                sa.select(sa.func.coalesce(sa.func.max(ReflectionVideo.order_index), 0))
+                .where(ReflectionVideo.reflection_id == reflection_id)
+            )
+            last_order = int((await s.execute(last_order_stmt)).scalar_one())
+            s.add_all(
+                [
+                    ReflectionVideo(
+                        id=uuid.uuid4(),
+                        reflection_id=reflection_id,
+                        file_id=file_id,
+                        order_index=last_order + index,
+                    )
+                    for index, file_id in enumerate(file_ids, start=1)
+                ]
+            )
+            await s.execute(
+                sa.update(LectionReflection)
+                .where(LectionReflection.id == reflection_id)
+                .values(submitted_at=submitted_at)
+            )

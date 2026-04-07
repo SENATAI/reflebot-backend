@@ -98,6 +98,7 @@ def create_mock_lection(lection_id: uuid.UUID, course_id: uuid.UUID, topic: str)
     mock_l.started_at = now
     mock_l.ended_at = now + timedelta(hours=2)
     mock_l.deadline = now + timedelta(hours=26)
+    mock_l.one_question_from_list = False
     mock_l.presentation_file_id = None
     mock_l.recording_file_id = None
     mock_l.created_at = now

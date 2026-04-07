@@ -142,6 +142,12 @@ class TelegramDialogMessageSchema(BaseModel):
     )
 
 
+class TelegramMessageTrackingSchema(BaseModel):
+    """Данные для последующего трекинга отправленного ботом сообщения."""
+
+    tracking_key: str = Field(..., description="Ключ трекинга отправленного сообщения")
+
+
 # User schemas
 
 class UserBaseSchema(BaseModel):
@@ -210,7 +216,7 @@ class CourseSessionBaseSchema(BaseModel):
 
 class CourseSessionCreateSchema(CourseSessionBaseSchema, CreateBaseModel):
     """Схема создания сессии курса."""
-    join_code: str = Field(..., min_length=4, max_length=4, description="Код курса")
+    join_code: str = Field(..., min_length=4, max_length=64, description="Код курса")
 
 
 class CourseSessionUpdateSchema(CourseSessionBaseSchema, UpdateBaseModel):
@@ -241,6 +247,10 @@ class LectionSessionBaseSchema(BaseModel):
     started_at: datetime = Field(..., description="Дата и время начала лекции")
     ended_at: datetime = Field(..., description="Дата и время окончания лекции")
     deadline: datetime = Field(..., description="Дедлайн отправки рефлексии по лекции")
+    one_question_from_list: bool = Field(
+        default=False,
+        description="Нужно ли студенту выбрать только один вопрос из списка",
+    )
 
 
 class LectionSessionCreateSchema(LectionSessionBaseSchema, CreateBaseModel):
@@ -481,6 +491,11 @@ class NotificationDeliveryBaseSchema(BaseModel):
     scheduled_for: datetime = Field(..., description="Плановое время доставки")
     status: NotificationDeliveryStatus = Field(..., description="Статус доставки")
     sent_at: datetime | None = Field(None, description="Время успешной отправки")
+    telegram_message_id: int | None = Field(None, description="ID сообщения в Telegram")
+    deadline_message_updated_at: datetime | None = Field(
+        None,
+        description="Время, когда prompt был обновлён после истечения дедлайна",
+    )
     attempts: int = Field(default=0, description="Количество попыток отправки")
     last_error: str | None = Field(None, description="Текст последней ошибки")
 
@@ -499,6 +514,11 @@ class NotificationDeliveryUpdateSchema(UpdateBaseModel):
     scheduled_for: datetime | None = Field(None, description="Плановое время доставки")
     status: NotificationDeliveryStatus | None = Field(None, description="Статус доставки")
     sent_at: datetime | None = Field(None, description="Время успешной отправки")
+    telegram_message_id: int | None = Field(None, description="ID сообщения в Telegram")
+    deadline_message_updated_at: datetime | None = Field(
+        None,
+        description="Время обновления prompt-сообщения после дедлайна",
+    )
     attempts: int | None = Field(None, description="Количество попыток отправки")
     last_error: str | None = Field(None, description="Текст последней ошибки")
 
@@ -561,6 +581,61 @@ class ReflectionPromptResultEventSchema(BaseModel):
     error: str | None = Field(None, description="Текст ошибки")
 
 
+class ReflectionPromptDeadlineUpdateCommandSchema(BaseModel):
+    """Команда редактирования prompt-сообщения после дедлайна."""
+
+    event_type: Literal["update_reflection_prompt"] = "update_reflection_prompt"
+    delivery_id: uuid.UUID = Field(..., description="ID доставки")
+    student_id: uuid.UUID = Field(..., description="ID студента")
+    telegram_id: int = Field(..., description="Telegram ID студента")
+    telegram_message_id: int = Field(..., description="ID сообщения, которое нужно отредактировать")
+    lection_session_id: uuid.UUID = Field(..., description="ID лекции")
+    message_text: str = Field(..., description="Новый текст сообщения")
+    parse_mode: str = Field(default="HTML", description="Telegram parse mode")
+    buttons: list[TelegramButtonSchema] = Field(
+        default_factory=list,
+        description="Актуальные inline-кнопки после дедлайна",
+    )
+
+
+class TelegramTrackedMessageBaseSchema(BaseModel):
+    """Базовая схема отслеживаемого Telegram-сообщения."""
+
+    telegram_id: int = Field(..., description="Telegram ID пользователя")
+    telegram_message_id: int = Field(..., description="Telegram message_id отправленного сообщения")
+    student_id: uuid.UUID = Field(..., description="ID студента")
+    lection_session_id: uuid.UUID = Field(..., description="ID лекции")
+    notification_delivery_id: uuid.UUID = Field(..., description="ID исходной доставки")
+    kind: str = Field(..., description="Тип отслеживаемого сообщения")
+    deadline_message_updated_at: datetime | None = Field(
+        None,
+        description="Время отправки update-команды после дедлайна",
+    )
+
+
+class TelegramTrackedMessageCreateSchema(TelegramTrackedMessageBaseSchema, CreateBaseModel):
+    """Схема создания отслеживаемого Telegram-сообщения."""
+
+
+class TelegramTrackedMessageUpdateSchema(UpdateBaseModel):
+    """Схема обновления отслеживаемого Telegram-сообщения."""
+
+    telegram_message_id: int | None = Field(None, description="Telegram message_id отправленного сообщения")
+    deadline_message_updated_at: datetime | None = Field(
+        None,
+        description="Время отправки update-команды после дедлайна",
+    )
+
+
+class TelegramTrackedMessageReadSchema(TelegramTrackedMessageBaseSchema):
+    """Схема чтения отслеживаемого Telegram-сообщения."""
+
+    id: uuid.UUID = Field(..., description="ID записи")
+    created_at: datetime = Field(..., description="Дата создания")
+    updated_at: datetime = Field(..., description="Дата обновления")
+    model_config = ConfigDict(from_attributes=True)
+
+
 # Pagination schemas
 
 class PaginatedResponse(BaseModel):
@@ -588,6 +663,10 @@ class ActionResponseSchema(BaseModel):
         description="Последовательные сообщения для отправки ботом друг за другом",
     )
     awaiting_input: bool = Field(default=False, description="Ожидается ли текстовый или файловый ввод")
+    message_tracking: TelegramMessageTrackingSchema | None = Field(
+        default=None,
+        description="Опциональные данные для трекинга отправленного ботом сообщения",
+    )
 
 
 class LectionDetailsSchema(BaseModel):

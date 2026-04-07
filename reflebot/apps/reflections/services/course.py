@@ -7,6 +7,7 @@ import uuid
 from typing import Protocol
 import sqlalchemy as sa
 from sqlalchemy import select
+from reflebot.core.utils.exceptions import ModelAlreadyExistsError
 from reflebot.settings import settings
 from ..datetime_utils import calculate_lection_deadline
 from ..repositories.course import CourseSessionRepositoryProtocol
@@ -30,6 +31,7 @@ class CourseServiceProtocol(Protocol):
         self,
         course_name: str,
         lections_data: list[dict],
+        join_code: str | None = None,
     ) -> CourseSessionReadSchema:
         """Создать курс с лекциями."""
         ...
@@ -81,6 +83,7 @@ class CourseService(CourseServiceProtocol):
         self,
         course_name: str,
         lections_data: list[dict],
+        join_code: str | None = None,
     ) -> CourseSessionReadSchema:
         """
         Создать курс с лекциями.
@@ -91,6 +94,8 @@ class CourseService(CourseServiceProtocol):
                 - topic: тема лекции
                 - started_at: дата и время начала
                 - ended_at: дата и время окончания
+                - deadline: дата и время дедлайна (опционально)
+            join_code: Код курса, если уже задан извне
         
         Returns:
             Созданный курс
@@ -105,10 +110,18 @@ class CourseService(CourseServiceProtocol):
         # Создаём курс
         course_data = CourseSessionCreateSchema(
             name=course_name,
-            join_code=await self._generate_unique_join_code(),
+            join_code=join_code or await self._generate_unique_join_code(),
             started_at=course_started_at,
             ended_at=course_ended_at,
         )
+        if join_code:
+            existing_course = await self.course_repository.get_by_join_code_or_none(join_code)
+            if existing_course is not None:
+                raise ModelAlreadyExistsError(
+                    CourseSession,
+                    "join_code",
+                    "duplicate key for field: join_code",
+                )
         course = await self.course_repository.create(course_data)
         
         # Создаём лекции с использованием bulk_create
@@ -118,10 +131,12 @@ class CourseService(CourseServiceProtocol):
                 topic=lection_data['topic'],
                 started_at=lection_data['started_at'],
                 ended_at=lection_data['ended_at'],
-                deadline=calculate_lection_deadline(
+                deadline=lection_data.get("deadline")
+                or calculate_lection_deadline(
                     lection_data['ended_at'],
                     settings.default_deadline,
                 ),
+                one_question_from_list=lection_data.get("one_question_from_list", False),
             )
             for lection_data in lections_data
         ]
@@ -149,7 +164,7 @@ class CourseService(CourseServiceProtocol):
 
     async def get_by_join_code(self, join_code: str) -> CourseSessionReadSchema:
         """Получить курс по коду."""
-        return await self.course_repository.get_by_join_code(join_code.upper())
+        return await self.course_repository.get_by_join_code(join_code)
     
     async def get_courses_for_admin(
         self, 

@@ -358,9 +358,61 @@ class TelegramMessages:
         )
 
     @staticmethod
+    def get_question_selection_prompt(questions: list[dict[str, str]]) -> str:
+        """Сообщение для выбора одного вопроса из списка."""
+        question_lines = [
+            f"{index}. {question.get('text', '')}"
+            for index, question in enumerate(questions, start=1)
+        ]
+        return (
+            "Выберите вопрос, на который хотите ответить.\n\n"
+            + "\n\n".join(question_lines)
+        )
+
+    @staticmethod
     def get_questions_completed_message() -> str:
         """Сообщение после завершения всех вопросов."""
         return "Вопросов больше нет. Спасибо за рефлексию."
+
+    @staticmethod
+    def get_reflection_status_active(
+        lection_topic: str,
+        deadline: datetime,
+        recorded_videos_count: int,
+    ) -> str:
+        """Статус рефлексии, если дедлайн ещё не закончился."""
+        return (
+            f"📝 Лекция: <b>{lection_topic}</b>\n"
+            f"⏰ Дедлайн: {TelegramMessages._format_datetime(deadline)}\n\n"
+            f"🎥 Записано кружков/видео: {recorded_videos_count}\n\n"
+            "Если хотите, можете дозаписать ещё один кружок/видео до дедлайна."
+        )
+
+    @staticmethod
+    def get_reflection_status_expired(
+        lection_topic: str,
+        deadline: datetime,
+        recorded_videos_count: int,
+    ) -> str:
+        """Статус рефлексии, если дедлайн закончился и записи есть."""
+        return (
+            f"⏰ Дедлайн по лекции <b>{lection_topic}</b> закончился "
+            f"{TelegramMessages._format_datetime(deadline)}.\n\n"
+            f"🎥 Записано кружков/видео: {recorded_videos_count}"
+        )
+
+    @staticmethod
+    def get_reflection_status_expired_without_videos(
+        lection_topic: str,
+        deadline: datetime,
+    ) -> str:
+        """Статус рефлексии, если дедлайн закончился и записи отсутствуют."""
+        return (
+            f"⏰ Дедлайн по лекции <b>{lection_topic}</b> закончился "
+            f"{TelegramMessages._format_datetime(deadline)}.\n\n"
+            "Кружки/видео по этой лекции не записаны.\n"
+            "Если запись всё же нужна, обратитесь в техподдержку."
+        )
 
     @staticmethod
     def get_reflection_already_submitted() -> str:
@@ -570,6 +622,14 @@ class TelegramMessages:
     def get_file_parsing_error(error: str) -> str:
         """Сообщение об ошибке парсинга файла."""
         return f"⚠️ Ошибка обработки файла:\n\n{error}\n\nПопробуйте загрузить другой файл."
+
+    @staticmethod
+    def get_course_join_code_already_exists() -> str:
+        """Сообщение о том, что код курса уже занят."""
+        return (
+            "⚠️ Курс с таким кодом уже существует.\n\n"
+            "Укажите в Excel другой код курса и попробуйте снова."
+        )
     
     @staticmethod
     def get_generic_error() -> str:

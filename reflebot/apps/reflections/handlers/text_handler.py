@@ -132,7 +132,7 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
             if action in {"register_course_by_code", "join_course"} and step == "awaiting_course_code":
                 try:
                     course = await self.button_handler.course_service.get_by_join_code(
-                        normalized_text.upper()
+                        normalized_text
                     )
                 except ModelFieldNotFoundException:
                     return await self._validation_failure(

@@ -2,7 +2,7 @@
 Unit tests для сервисов доставки уведомлений.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
@@ -17,6 +17,7 @@ from reflebot.apps.reflections.schemas import (
 )
 from reflebot.apps.reflections.services.notification_delivery import NotificationDeliveryService
 from reflebot.apps.reflections.services.reflection_prompt_message import ReflectionPromptMessageService
+from reflebot.apps.reflections.telegram.buttons import TelegramButtons
 
 
 def create_delivery_read(status: NotificationDeliveryStatus) -> NotificationDeliveryReadSchema:
@@ -93,6 +94,26 @@ async def test_notification_delivery_service_mark_sent_is_idempotent_for_sent():
 
 
 @pytest.mark.asyncio
+async def test_notification_delivery_service_mark_sent_passes_telegram_message_id():
+    repository = AsyncMock()
+    queued_delivery = create_delivery_read(NotificationDeliveryStatus.QUEUED)
+    sent_delivery = queued_delivery.model_copy(update={"status": NotificationDeliveryStatus.SENT})
+    repository.get.return_value = queued_delivery
+    repository.mark_sent.return_value = sent_delivery
+    service = NotificationDeliveryService(repository)
+
+    result = await service.mark_sent(
+        queued_delivery.id,
+        datetime.now(timezone.utc),
+        telegram_message_id=321,
+    )
+
+    assert result == sent_delivery
+    repository.mark_sent.assert_awaited_once()
+    assert repository.mark_sent.call_args.args[2] == 321
+
+
+@pytest.mark.asyncio
 async def test_notification_delivery_service_ignores_fail_for_sent_delivery():
     repository = AsyncMock()
     sent_delivery = create_delivery_read(NotificationDeliveryStatus.SENT)
@@ -117,7 +138,7 @@ async def test_reflection_prompt_message_service_includes_lection_topic():
         recording_file_id=None,
         started_at=now,
         ended_at=now,
-        deadline=now,
+        deadline=now + timedelta(hours=1),
         created_at=now,
         updated_at=now,
     )
@@ -131,3 +152,29 @@ async def test_reflection_prompt_message_service_includes_lection_topic():
     assert message.parse_mode == "HTML"
     assert len(message.buttons) == 1
     assert message.buttons[0].action.startswith("student_start_reflection:")
+
+
+@pytest.mark.asyncio
+async def test_reflection_prompt_message_service_returns_expired_status_for_late_join():
+    lection_repository = AsyncMock()
+    now = datetime.now(timezone.utc)
+    lection_repository.get.return_value = LectionSessionReadSchema(
+        id=uuid.uuid4(),
+        course_session_id=uuid.uuid4(),
+        topic="Математический анализ",
+        presentation_file_id=None,
+        recording_file_id=None,
+        started_at=now - timedelta(days=2, hours=1),
+        ended_at=now - timedelta(days=2),
+        deadline=now - timedelta(hours=2),
+        created_at=now,
+        updated_at=now,
+    )
+    service = ReflectionPromptMessageService(lection_repository)
+
+    message = await service.build_message(uuid.uuid4(), uuid.uuid4())
+
+    assert "Кружки/видео по этой лекции не записаны" in message.message_text
+    assert "техподдержку" in message.message_text
+    assert len(message.buttons) == 1
+    assert message.buttons[0].url == TelegramButtons.TECH_SUPPORT_URL

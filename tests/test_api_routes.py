@@ -8,9 +8,11 @@ import pytest
 from fastapi import UploadFile
 
 from reflebot.apps.reflections.routers.actions import (
+    MessageDeliveredSchema,
     TextInputSchema,
     handle_button_action,
     handle_file_upload,
+    handle_message_delivered,
     handle_text_input,
 )
 from reflebot.apps.reflections.routers.auth import user_login
@@ -49,6 +51,16 @@ class DummyLoginUseCase:
         )
 
 
+class DummyTrackedMessageService:
+    async def track_message_delivery(
+        self,
+        telegram_id: int,
+        tracking_key: str,
+        telegram_message_id: int,
+    ) -> None:
+        self.payload = (telegram_id, tracking_key, telegram_message_id)
+
+
 @pytest.mark.asyncio
 async def test_actions_endpoints_return_standard_response_structure():
     button_response = await handle_button_action("test", DummyButtonHandler(), 1)
@@ -68,6 +80,7 @@ async def test_actions_endpoints_return_standard_response_structure():
             "files",
             "dialog_messages",
             "awaiting_input",
+            "message_tracking",
         }
 
 
@@ -79,3 +92,16 @@ async def test_auth_endpoint_returns_login_payload():
     assert payload["telegram_username"] == "test_user"
     assert payload["telegram_id"] == 42
     assert payload["message"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_message_delivered_endpoint_tracks_bot_message():
+    service = DummyTrackedMessageService()
+
+    await handle_message_delivered(
+        MessageDeliveredSchema(tracking_key="reflection_status:test", telegram_message_id=77),
+        service,
+        42,
+    )
+
+    assert service.payload == (42, "reflection_status:test", 77)

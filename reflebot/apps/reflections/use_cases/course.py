@@ -66,11 +66,21 @@ class CreateCourseFromExcelUseCase(CreateCourseFromExcelUseCaseProtocol):
         """
         # Парсим Excel файл через инжектированный парсер
         parsed_lections_data = self.parser.parse(excel_file)
+        course_join_code = next(
+            (
+                str(lection["join_code"]).strip()
+                for lection in parsed_lections_data
+                if lection.get("join_code")
+            ),
+            None,
+        )
         lections_data = [
             {
                 "topic": lection["topic"],
                 "started_at": lection["started_at"],
                 "ended_at": lection["ended_at"],
+                "deadline": lection["deadline"],
+                "one_question_from_list": lection.get("one_question_from_list", False),
             }
             for lection in parsed_lections_data
         ]
@@ -79,6 +89,7 @@ class CreateCourseFromExcelUseCase(CreateCourseFromExcelUseCaseProtocol):
         course = await self.course_service.create_course_with_lections(
             course_name=course_name,
             lections_data=lections_data,
+            join_code=course_join_code,
         )
 
         lections_response = await self.lection_service.get_lections_by_course(

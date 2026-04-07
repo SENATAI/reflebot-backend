@@ -235,6 +235,7 @@ async def test_student_statistics_accuracy():
             started_at=datetime.now(timezone.utc) + timedelta(days=i),
             ended_at=datetime.now(timezone.utc) + timedelta(days=i, hours=2),
             deadline=datetime.now(timezone.utc) + timedelta(days=i, hours=26),
+            one_question_from_list=False,
             presentation_file_id=None,
             recording_file_id=None,
             created_at=datetime.now(timezone.utc),

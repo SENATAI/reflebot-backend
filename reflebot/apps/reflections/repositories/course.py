@@ -2,6 +2,7 @@
 Репозиторий для работы с курсами.
 """
 
+import sqlalchemy as sa
 from sqlalchemy import select
 
 from reflebot.core.utils.exceptions import ModelFieldNotFoundException
@@ -33,7 +34,9 @@ class CourseSessionRepository(
     async def get_by_join_code(self, join_code: str) -> CourseSessionReadSchema:
         """Получить курс по коду."""
         async with self.session as s:
-            statement = select(self.model_type).where(self.model_type.join_code == join_code)
+            statement = select(self.model_type).where(
+                sa.func.lower(self.model_type.join_code) == join_code.lower()
+            )
             model = (await s.execute(statement)).scalar_one_or_none()
             if model is None:
                 raise ModelFieldNotFoundException(self.model_type, "join_code", join_code)

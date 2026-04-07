@@ -53,13 +53,18 @@ class NotificationDeliveryResultHandler(NotificationDeliveryResultHandlerProtoco
 
         if payload.success:
             sent_at = payload.sent_at or datetime.now(timezone.utc)
-            result = await self.notification_delivery_service.mark_sent(payload.delivery_id, sent_at)
+            result = await self.notification_delivery_service.mark_sent(
+                payload.delivery_id,
+                sent_at,
+                payload.telegram_message_id,
+            )
             logger.info(
                 "Notification delivery marked as sent.",
                 extra={
                     "delivery_id": str(payload.delivery_id),
                     "status": result.status,
                     "sent_at": sent_at.isoformat(),
+                    "telegram_message_id": payload.telegram_message_id,
                 },
             )
             return result

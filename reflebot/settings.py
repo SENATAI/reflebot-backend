@@ -78,6 +78,7 @@ class CeleryConfig(BaseModel):
     beat_schedule_scan_interval_seconds: int = 60
     scan_batch_size: int = 500
     publish_batch_size: int = 500
+    deadline_update_interval_seconds: int = 60
     retry_failed_interval_seconds: int = 300
     retry_failed_backoff_seconds: int = 300
     retry_failed_max_attempts: int = 3

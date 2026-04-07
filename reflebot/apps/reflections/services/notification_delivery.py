@@ -37,12 +37,21 @@ class NotificationDeliveryServiceProtocol(Protocol):
         self,
         delivery_id: uuid.UUID,
         sent_at: datetime,
+        telegram_message_id: int | None = None,
     ) -> NotificationDeliveryReadSchema:
         """Перевести доставку в sent."""
         ...
 
     async def mark_failed(self, delivery_id: uuid.UUID, error: str) -> NotificationDeliveryReadSchema:
         """Перевести доставку в failed."""
+        ...
+
+    async def mark_deadline_message_updated(
+        self,
+        delivery_id: uuid.UUID,
+        updated_at: datetime,
+    ) -> NotificationDeliveryReadSchema:
+        """Отметить обновление prompt-сообщения после дедлайна."""
         ...
 
 
@@ -92,12 +101,13 @@ class NotificationDeliveryService(NotificationDeliveryServiceProtocol):
         self,
         delivery_id: uuid.UUID,
         sent_at: datetime,
+        telegram_message_id: int | None = None,
     ) -> NotificationDeliveryReadSchema:
         """Перевести доставку в sent."""
         current = await self.repository.get(delivery_id)
         if current.status == NotificationDeliveryStatus.SENT:
             return current
-        return await self.repository.mark_sent(delivery_id, sent_at)
+        return await self.repository.mark_sent(delivery_id, sent_at, telegram_message_id)
 
     async def mark_failed(self, delivery_id: uuid.UUID, error: str) -> NotificationDeliveryReadSchema:
         """Перевести доставку в failed, если она ещё не стала sent."""
@@ -105,3 +115,11 @@ class NotificationDeliveryService(NotificationDeliveryServiceProtocol):
         if current.status == NotificationDeliveryStatus.SENT:
             return current
         return await self.repository.mark_failed(delivery_id, error)
+
+    async def mark_deadline_message_updated(
+        self,
+        delivery_id: uuid.UUID,
+        updated_at: datetime,
+    ) -> NotificationDeliveryReadSchema:
+        """Отметить обновление prompt-сообщения после дедлайна."""
+        return await self.repository.mark_deadline_message_updated(delivery_id, updated_at)

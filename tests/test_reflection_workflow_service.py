@@ -29,6 +29,7 @@ def create_lection(topic: str = "Лекция") -> LectionSessionReadSchema:
         started_at=now,
         ended_at=now,
         deadline=now + timedelta(hours=24),
+        one_question_from_list=False,
         created_at=now,
         updated_at=now,
     )
@@ -69,27 +70,63 @@ async def test_start_workflow_denies_student_without_lection_access():
 
 
 @pytest.mark.asyncio
-async def test_start_workflow_rejects_already_submitted_reflection():
+async def test_start_workflow_allows_existing_reflection_for_dozapis():
     repository = AsyncMock()
     repository.get_lection_for_student.return_value = create_lection()
     repository.get_reflection_for_student.return_value = create_reflection()
     service = ReflectionWorkflowService(repository)
 
-    with pytest.raises(ValidationError):
-        await service.start_workflow(uuid.uuid4(), uuid.uuid4())
+    result = await service.start_workflow(uuid.uuid4(), uuid.uuid4())
+
+    assert result["reflection_id"] is not None
+    assert result["questions"] == []
+    assert result["reflection_videos"] == []
+
+
+@pytest.mark.asyncio
+async def test_start_workflow_preserves_one_question_from_list_flag():
+    repository = AsyncMock()
+    lection = create_lection()
+    lection.one_question_from_list = True
+    repository.get_lection_for_student.return_value = lection
+    repository.get_reflection_for_student.return_value = None
+    repository.get_questions_for_lection.return_value = [
+        create_question("Первый?"),
+        create_question("Второй?"),
+    ]
+    service = ReflectionWorkflowService(repository)
+
+    result = await service.start_workflow(uuid.uuid4(), uuid.uuid4())
+
+    assert result["one_question_from_list"] is True
 
 
 @pytest.mark.asyncio
 async def test_start_workflow_rejects_expired_deadline():
     repository = AsyncMock()
     expired_lection = create_lection()
-    expired_lection.deadline = datetime.now(timezone.utc) - timedelta(seconds=1)
+    expired_lection.deadline = datetime.now(timezone.utc) - timedelta(minutes=1, seconds=1)
     repository.get_lection_for_student.return_value = expired_lection
     repository.get_reflection_for_student.return_value = None
     service = ReflectionWorkflowService(repository)
 
     with pytest.raises(ValidationError, match="дедлайн закончился"):
         await service.start_workflow(uuid.uuid4(), uuid.uuid4())
+
+
+@pytest.mark.asyncio
+async def test_start_workflow_allows_deadline_during_extra_minute():
+    repository = AsyncMock()
+    lection = create_lection()
+    lection.deadline = datetime.now(timezone.utc)
+    repository.get_lection_for_student.return_value = lection
+    repository.get_reflection_for_student.return_value = None
+    repository.get_questions_for_lection.return_value = []
+    service = ReflectionWorkflowService(repository)
+
+    result = await service.start_workflow(uuid.uuid4(), uuid.uuid4())
+
+    assert result["lection_id"] == str(lection.id)
 
 
 @pytest.mark.asyncio
@@ -114,6 +151,117 @@ async def test_submit_reflection_switches_context_to_questions():
     assert updated["stage"] == "question"
     assert updated["reflection_id"] is not None
     assert updated["current_question_index"] == 0
+    assert updated["reflection_videos"] == []
+
+
+@pytest.mark.asyncio
+async def test_submit_reflection_appends_videos_to_existing_reflection():
+    repository = AsyncMock()
+    service = ReflectionWorkflowService(repository)
+    reflection_id = uuid.uuid4()
+    context_data = {
+        "lection_id": str(uuid.uuid4()),
+        "lection_topic": "Матан",
+        "stage": "reflection",
+        "reflection_id": str(reflection_id),
+        "reflection_videos": ["video-1"],
+        "questions": [],
+        "current_question_index": 0,
+        "current_question_videos": [],
+        "qa_answers": [],
+    }
+
+    updated = await service.submit_reflection(uuid.uuid4(), context_data)
+
+    repository.append_videos_to_reflection.assert_called_once()
+    repository.create_reflection_with_videos.assert_not_called()
+    assert updated["reflection_id"] == str(reflection_id)
+    assert updated["reflection_videos"] == []
+
+
+def test_should_select_single_question_returns_true_only_for_multi_question_mode():
+    repository = AsyncMock()
+    service = ReflectionWorkflowService(repository)
+
+    assert service.should_select_single_question(
+        {
+            "one_question_from_list": True,
+            "questions": [{"id": "1"}, {"id": "2"}],
+        }
+    ) is True
+    assert service.should_select_single_question(
+        {
+            "one_question_from_list": False,
+            "questions": [{"id": "1"}, {"id": "2"}],
+        }
+    ) is False
+    assert service.should_select_single_question(
+        {
+            "one_question_from_list": True,
+            "questions": [{"id": "1"}],
+        }
+    ) is False
+
+
+def test_select_single_question_keeps_only_chosen_question():
+    repository = AsyncMock()
+    service = ReflectionWorkflowService(repository)
+    first_question_id = uuid.uuid4()
+    second_question_id = uuid.uuid4()
+
+    updated = service.select_single_question(
+        {
+            "questions": [
+                {"id": str(first_question_id), "text": "Первый?"},
+                {"id": str(second_question_id), "text": "Второй?"},
+            ],
+            "current_question_index": 1,
+            "current_question_videos": ["video-old"],
+        },
+        second_question_id,
+    )
+
+    assert updated["questions"] == [{"id": str(second_question_id), "text": "Второй?"}]
+    assert updated["current_question_index"] == 0
+    assert updated["current_question_videos"] == []
+
+
+@pytest.mark.asyncio
+async def test_get_reflection_status_returns_deadline_and_total_saved_count():
+    repository = AsyncMock()
+    lection = create_lection("Теория игр")
+    reflection = create_reflection()
+    repository.get_lection_for_student.return_value = lection
+    repository.get_reflection_for_student.return_value = reflection
+    repository.get_reflection_video_file_ids.return_value = [
+        "reflection-video-1",
+        "qa-video-1",
+        "qa-video-2",
+    ]
+    service = ReflectionWorkflowService(repository)
+
+    status = await service.get_reflection_status(uuid.uuid4(), lection.id)
+
+    assert status["lection_id"] == str(lection.id)
+    assert status["lection_topic"] == "Теория игр"
+    assert status["reflection_id"] == str(reflection.id)
+    assert status["recorded_videos_count"] == 3
+    assert status["deadline_active"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_reflection_status_marks_deadline_inactive_after_extra_minute():
+    repository = AsyncMock()
+    lection = create_lection("Теория игр")
+    lection.deadline = datetime.now(timezone.utc) - timedelta(minutes=1, seconds=1)
+    repository.get_lection_for_student.return_value = lection
+    repository.get_reflection_for_student.return_value = None
+    repository.get_reflection_video_file_ids.return_value = []
+    service = ReflectionWorkflowService(repository)
+
+    status = await service.get_reflection_status(uuid.uuid4(), lection.id)
+
+    assert status["deadline_active"] is False
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from typing import Any, Protocol
 import uuid
 
 from reflebot.core.utils.exceptions import PermissionDeniedError, ValidationError
+from ..datetime_utils import is_reflection_deadline_active
 from ..repositories.reflection import ReflectionWorkflowRepositoryProtocol
 from ..schemas import QuestionAnswerDraftSchema
 
@@ -65,8 +66,28 @@ class ReflectionWorkflowServiceProtocol(Protocol):
         """Получить текущий вопрос из контекста."""
         ...
 
+    def should_select_single_question(self, context_data: dict[str, Any]) -> bool:
+        """Нужно ли студенту выбрать один вопрос из списка."""
+        ...
+
+    def select_single_question(
+        self,
+        context_data: dict[str, Any],
+        question_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Оставить в контексте только выбранный студентом вопрос."""
+        ...
+
     def get_current_video_count(self, context_data: dict[str, Any]) -> int:
         """Получить количество кружков в текущем draft."""
+        ...
+
+    async def get_reflection_status(
+        self,
+        student_id: uuid.UUID,
+        lection_session_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Получить текущее состояние рефлексии студента по лекции."""
         ...
 
 
@@ -90,21 +111,28 @@ class ReflectionWorkflowService(ReflectionWorkflowServiceProtocol):
             student_id,
             lection_session_id,
         )
-        if existing_reflection is not None:
-            raise ValidationError("reflection", "Рефлексия по этой лекции уже отправлена.")
-        if datetime.now(timezone.utc) >= lection.deadline:
+        if not is_reflection_deadline_active(lection.deadline):
             raise ValidationError(
                 "deadline",
                 "Нельзя отправить кружок/видео по данной лекции, дедлайн закончился.",
             )
 
-        questions = await self.repository.get_questions_for_lection(lection_session_id)
+        questions = (
+            []
+            if existing_reflection is not None
+            else await self.repository.get_questions_for_lection(lection_session_id)
+        )
         return {
             "lection_id": str(lection.id),
             "lection_topic": lection.topic,
             "lection_deadline": lection.deadline.isoformat(),
+            "one_question_from_list": bool(lection.one_question_from_list),
             "stage": "reflection",
-            "reflection_id": None,
+            "reflection_id": (
+                str(existing_reflection.id)
+                if existing_reflection is not None
+                else None
+            ),
             "reflection_videos": [],
             "questions": [
                 {"id": str(question.id), "text": question.question_text}
@@ -153,16 +181,25 @@ class ReflectionWorkflowService(ReflectionWorkflowServiceProtocol):
         if not file_ids:
             raise ValidationError("reflection_video", "Сначала нужно загрузить хотя бы один кружок/видео.")
 
-        reflection = await self.repository.create_reflection_with_videos(
-            student_id=student_id,
-            lection_session_id=uuid.UUID(str(data["lection_id"])),
-            file_ids=file_ids,
-            submitted_at=datetime.now(timezone.utc),
-        )
-        data["reflection_id"] = str(reflection.id)
+        submitted_at = datetime.now(timezone.utc)
+        if data.get("reflection_id"):
+            await self.repository.append_videos_to_reflection(
+                reflection_id=uuid.UUID(str(data["reflection_id"])),
+                file_ids=file_ids,
+                submitted_at=submitted_at,
+            )
+        else:
+            reflection = await self.repository.create_reflection_with_videos(
+                student_id=student_id,
+                lection_session_id=uuid.UUID(str(data["lection_id"])),
+                file_ids=file_ids,
+                submitted_at=submitted_at,
+            )
+            data["reflection_id"] = str(reflection.id)
         data["stage"] = "question"
         data["current_question_index"] = 0
         data["current_question_videos"] = []
+        data["reflection_videos"] = []
         data["qa_answers"] = []
         return data
 
@@ -223,10 +260,64 @@ class ReflectionWorkflowService(ReflectionWorkflowServiceProtocol):
             return None
         return questions[current_index]
 
+    @staticmethod
+    def should_select_single_question(context_data: dict[str, Any]) -> bool:
+        """Нужно ли студенту сначала выбрать один вопрос из списка."""
+        return bool(context_data.get("one_question_from_list")) and len(
+            list(context_data.get("questions", []))
+        ) > 1
+
+    @staticmethod
+    def select_single_question(
+        context_data: dict[str, Any],
+        question_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Оставить в контексте только выбранный студентом вопрос."""
+        data = ReflectionWorkflowService._clone_context_data(context_data)
+        selected_question = next(
+            (
+                question
+                for question in data.get("questions", [])
+                if str(question["id"]) == str(question_id)
+            ),
+            None,
+        )
+        if selected_question is None:
+            raise ValidationError("question", "Выбранный вопрос не найден.")
+        data["questions"] = [selected_question]
+        data["current_question_index"] = 0
+        data["current_question_videos"] = []
+        return data
+
     def get_current_video_count(self, context_data: dict[str, Any]) -> int:
         """Получить количество кружков в текущем draft."""
         key = self._draft_key(context_data)
         return len(list(context_data.get(key, [])))
+
+    async def get_reflection_status(
+        self,
+        student_id: uuid.UUID,
+        lection_session_id: uuid.UUID,
+    ) -> dict[str, Any]:
+        """Получить текущее состояние рефлексии студента по лекции."""
+        lection = await self.repository.get_lection_for_student(student_id, lection_session_id)
+        if lection is None:
+            raise PermissionDeniedError("У студента нет доступа к этой лекции.")
+
+        reflection = await self.repository.get_reflection_for_student(student_id, lection_session_id)
+        video_file_ids = await self.repository.get_reflection_video_file_ids(
+            student_id,
+            lection_session_id,
+        )
+        deadline = lection.deadline
+        return {
+            "lection_id": str(lection.id),
+            "lection_topic": lection.topic,
+            "lection_deadline": deadline.isoformat(),
+            "reflection_id": str(reflection.id) if reflection is not None else None,
+            "recorded_videos_count": len(video_file_ids),
+            "deadline_active": is_reflection_deadline_active(deadline),
+        }
 
     @staticmethod
     def _draft_key(context_data: dict[str, Any]) -> str:

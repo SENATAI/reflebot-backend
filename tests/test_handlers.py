@@ -110,6 +110,10 @@ def build_button_handler() -> ButtonActionHandler:
     student_service.get_by_telegram_id.return_value = None
     context_service = AsyncMock()
     context_service.get_context.return_value = None
+    telegram_tracked_message_service = AsyncMock()
+    telegram_tracked_message_service.build_reflection_status_tracking_key = Mock(
+        side_effect=lambda lection_id: f"reflection_status:{lection_id}"
+    )
     return ButtonActionHandler(
         context_service=context_service,
         admin_service=admin_service,
@@ -128,6 +132,7 @@ def build_button_handler() -> ButtonActionHandler:
         manage_files_use_case=AsyncMock(),
         reflection_workflow_service=AsyncMock(),
         student_history_log_service=AsyncMock(),
+        telegram_tracked_message_service=telegram_tracked_message_service,
         view_lection_analytics_use_case=AsyncMock(),
         view_student_analytics_use_case=AsyncMock(),
         view_reflection_details_use_case=AsyncMock(),
@@ -964,6 +969,14 @@ async def test_button_handler_starts_student_reflection_workflow():
     student = create_student()
     lection_id = uuid.uuid4()
     handler.student_service.get_by_telegram_id.return_value = student
+    handler.reflection_workflow_service.get_reflection_status.return_value = {
+        "lection_id": str(lection_id),
+        "lection_topic": "Линейная алгебра",
+        "lection_deadline": datetime.now(timezone.utc).isoformat(),
+        "reflection_id": None,
+        "recorded_videos_count": 0,
+        "deadline_active": True,
+    }
     handler.reflection_workflow_service.start_workflow.return_value = {
         "lection_id": str(lection_id),
         "lection_topic": "Линейная алгебра",
@@ -994,6 +1007,37 @@ async def test_button_handler_starts_student_reflection_workflow():
     assert response.message == TelegramMessages.get_reflection_recording_request()
     assert response.awaiting_input is True
     assert response.buttons == []
+
+
+@pytest.mark.asyncio
+async def test_button_handler_shows_student_reflection_status_when_deadline_expired():
+    handler = build_button_handler()
+    student = create_student()
+    lection_id = uuid.uuid4()
+    deadline = datetime.now(timezone.utc) - timedelta(hours=1)
+    handler.student_service.get_by_telegram_id.return_value = student
+    handler.reflection_workflow_service.get_reflection_status.return_value = {
+        "lection_id": str(lection_id),
+        "lection_topic": "Линейная алгебра",
+        "lection_deadline": deadline.isoformat(),
+        "reflection_id": None,
+        "recorded_videos_count": 0,
+        "deadline_active": False,
+    }
+
+    response = await handler.handle(
+        f"{TelegramButtons.STUDENT_START_REFLECTION}:{lection_id}",
+        student.telegram_id,
+    )
+
+    assert response.message == TelegramMessages.get_reflection_status_expired_without_videos(
+        "Линейная алгебра",
+        deadline,
+    )
+    assert len(response.buttons) == 1
+    assert response.buttons[0].text == "🛠 Тех. Поддержка"
+    assert response.buttons[0].action is None
+    assert response.buttons[0].url == TelegramButtons.TECH_SUPPORT_URL
 
 
 @pytest.mark.asyncio
@@ -1134,6 +1178,62 @@ async def test_file_handler_saves_student_video_to_draft_and_returns_review_acti
 async def test_button_handler_submits_student_reflection_without_questions():
     handler = build_button_handler()
     student = create_student()
+    lection_id = uuid.uuid4()
+    deadline = datetime.now(timezone.utc) + timedelta(hours=5)
+    handler.student_service.get_by_telegram_id.return_value = student
+    handler.context_service.get_context.return_value = {
+        "action": "student_reflection_workflow",
+        "step": "review_reflection_videos",
+        "data": {
+            "lection_id": str(lection_id),
+            "lection_topic": "Матан",
+            "stage": "reflection",
+            "reflection_videos": ["video-1"],
+            "questions": [],
+            "current_question_index": 0,
+            "current_question_videos": [],
+            "qa_answers": [],
+        },
+    }
+    handler.reflection_workflow_service.submit_reflection.return_value = {
+        **handler.context_service.get_context.return_value["data"],
+        "stage": "question",
+        "reflection_id": str(uuid.uuid4()),
+    }
+    handler.reflection_workflow_service.get_reflection_status.return_value = {
+        "lection_id": str(lection_id),
+        "lection_topic": "Матан",
+        "lection_deadline": deadline.isoformat(),
+        "reflection_id": str(uuid.uuid4()),
+        "recorded_videos_count": 1,
+        "deadline_active": True,
+    }
+
+    response = await handler.handle(TelegramButtons.STUDENT_SUBMIT_REFLECTION, student.telegram_id)
+
+    handler.context_service.clear_context.assert_called_once_with(student.telegram_id)
+    assert response.message == TelegramMessages.get_reflection_status_active(
+        "Матан",
+        deadline,
+        1,
+    )
+    assert len(response.buttons) == 1
+    assert response.buttons[0].text == "➕ Добавить кружок"
+    assert response.buttons[0].action == (
+        f"{TelegramButtons.STUDENT_APPEND_REFLECTION}:{lection_id}"
+    )
+    assert response.buttons[0].url is None
+    assert len(response.buttons[0].action.encode("utf-8")) <= 64
+    assert response.message_tracking is not None
+    assert response.message_tracking.tracking_key == f"reflection_status:{lection_id}"
+
+
+@pytest.mark.asyncio
+async def test_button_handler_submits_student_reflection_and_prompts_question_choice():
+    handler = build_button_handler()
+    student = create_student()
+    first_question_id = uuid.uuid4()
+    second_question_id = uuid.uuid4()
     handler.student_service.get_by_telegram_id.return_value = student
     handler.context_service.get_context.return_value = {
         "action": "student_reflection_workflow",
@@ -1153,12 +1253,94 @@ async def test_button_handler_submits_student_reflection_without_questions():
         **handler.context_service.get_context.return_value["data"],
         "stage": "question",
         "reflection_id": str(uuid.uuid4()),
+        "one_question_from_list": True,
+        "questions": [
+            {"id": str(first_question_id), "text": "Что было полезно?"},
+            {"id": str(second_question_id), "text": "Что осталось непонятным?"},
+        ],
     }
+    handler.reflection_workflow_service.should_select_single_question = Mock(return_value=True)
 
     response = await handler.handle(TelegramButtons.STUDENT_SUBMIT_REFLECTION, student.telegram_id)
 
-    handler.context_service.clear_context.assert_called_once_with(student.telegram_id)
-    assert response.message == TelegramMessages.get_reflection_submission_completed()
+    handler.context_service.set_context.assert_awaited_once_with(
+        student.telegram_id,
+        action="student_reflection_workflow",
+        step="question_select",
+        data=handler.reflection_workflow_service.submit_reflection.return_value,
+    )
+    assert response.message == TelegramMessages.get_question_selection_prompt(
+        handler.reflection_workflow_service.submit_reflection.return_value["questions"]
+    )
+    assert [button.text for button in response.buttons] == [
+        "Вопрос 1",
+        "Вопрос 2",
+    ]
+    assert response.buttons[0].action == (
+        f"{TelegramButtons.STUDENT_SELECT_QUESTION}:{first_question_id}"
+    )
+    assert response.buttons[1].action == (
+        f"{TelegramButtons.STUDENT_SELECT_QUESTION}:{second_question_id}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_button_handler_saves_selected_question_and_shows_prompt():
+    handler = build_button_handler()
+    student = create_student()
+    lection_id = uuid.uuid4()
+    question_id = uuid.uuid4()
+    handler.student_service.get_by_telegram_id.return_value = student
+    handler.context_service.get_context.return_value = {
+        "action": "student_reflection_workflow",
+        "step": "question_select",
+        "data": {
+            "lection_id": str(lection_id),
+            "questions": [
+                {"id": str(question_id), "text": "Что было полезно?"},
+                {"id": str(uuid.uuid4()), "text": "Что было сложным?"},
+            ],
+            "current_question_index": 0,
+            "current_question_videos": [],
+            "qa_answers": [],
+        },
+    }
+    handler.reflection_workflow_service.get_reflection_status.return_value = {
+        "lection_id": str(lection_id),
+        "lection_topic": "Матан",
+        "lection_deadline": datetime.now(timezone.utc).isoformat(),
+        "reflection_id": str(uuid.uuid4()),
+        "recorded_videos_count": 1,
+        "deadline_active": True,
+    }
+    selected_context = {
+        **handler.context_service.get_context.return_value["data"],
+        "questions": [{"id": str(question_id), "text": "Что было полезно?"}],
+        "current_question_index": 0,
+        "current_question_videos": [],
+    }
+    handler.reflection_workflow_service.select_single_question = Mock(return_value=selected_context)
+    handler.reflection_workflow_service.get_current_question = Mock(
+        return_value={"id": str(question_id), "text": "Что было полезно?"}
+    )
+
+    response = await handler.handle(
+        f"{TelegramButtons.STUDENT_SELECT_QUESTION}:{question_id}",
+        student.telegram_id,
+    )
+
+    handler.context_service.set_context.assert_awaited_once_with(
+        student.telegram_id,
+        action="student_reflection_workflow",
+        step="question_prompt",
+        data=selected_context,
+    )
+    assert response.message == TelegramMessages.get_question_reflection_prompt(
+        "Что было полезно?",
+        1,
+        1,
+    )
+    assert response.awaiting_input is True
 
 
 @pytest.mark.asyncio
@@ -1166,12 +1348,14 @@ async def test_button_handler_submits_last_question_and_finishes_workflow():
     handler = build_button_handler()
     student = create_student()
     question_id = uuid.uuid4()
+    lection_id = uuid.uuid4()
+    deadline = datetime.now(timezone.utc) + timedelta(hours=2)
     handler.student_service.get_by_telegram_id.return_value = student
     handler.context_service.get_context.return_value = {
         "action": "student_reflection_workflow",
         "step": "review_question_videos",
         "data": {
-            "lection_id": str(uuid.uuid4()),
+            "lection_id": str(lection_id),
             "lection_topic": "Алгоритмы",
             "stage": "question",
             "reflection_id": str(uuid.uuid4()),
@@ -1194,13 +1378,146 @@ async def test_button_handler_submits_last_question_and_finishes_workflow():
             }
         ],
     }
-    handler.reflection_workflow_service.get_current_question = Mock(return_value=None)
+    handler.reflection_workflow_service.get_current_question = Mock(
+        side_effect=[
+            {"id": str(question_id), "text": "Что было полезным?"},
+            None,
+        ]
+    )
+    handler.reflection_workflow_service.get_reflection_status.return_value = {
+        "lection_id": str(lection_id),
+        "lection_topic": "Алгоритмы",
+        "lection_deadline": deadline.isoformat(),
+        "reflection_id": str(uuid.uuid4()),
+        "recorded_videos_count": 1,
+        "deadline_active": True,
+    }
 
     response = await handler.handle(TelegramButtons.STUDENT_SUBMIT_QA, student.telegram_id)
 
     handler.reflection_workflow_service.finalize_question_answers.assert_called_once()
     handler.context_service.clear_context.assert_called_once_with(student.telegram_id)
-    assert response.message == TelegramMessages.get_questions_completed_message()
+    assert response.message == TelegramMessages.get_reflection_status_active(
+        "Алгоритмы",
+        deadline,
+        1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_button_handler_ignores_stale_submit_qa_button_and_returns_status():
+    handler = build_button_handler()
+    student = create_student()
+    lection_id = uuid.uuid4()
+    deadline = datetime.now(timezone.utc) + timedelta(hours=2)
+    handler.student_service.get_by_telegram_id.return_value = student
+    handler.context_service.get_context.return_value = {
+        "action": "student_reflection_workflow",
+        "step": "review_question_videos",
+        "data": {
+            "lection_id": str(lection_id),
+            "lection_topic": "Алгоритмы",
+            "stage": "question",
+            "reflection_id": str(uuid.uuid4()),
+            "reflection_videos": ["video-1"],
+            "questions": [{"id": str(uuid.uuid4()), "text": "Что было полезным?"}],
+            "current_question_index": 1,
+            "current_question_videos": [],
+            "qa_answers": [],
+        },
+    }
+    handler.reflection_workflow_service.get_current_question = Mock(return_value=None)
+    handler.reflection_workflow_service.get_reflection_status.return_value = {
+        "lection_id": str(lection_id),
+        "lection_topic": "Алгоритмы",
+        "lection_deadline": deadline.isoformat(),
+        "reflection_id": str(uuid.uuid4()),
+        "recorded_videos_count": 1,
+        "deadline_active": True,
+    }
+
+    response = await handler.handle(TelegramButtons.STUDENT_SUBMIT_QA, student.telegram_id)
+
+    handler.reflection_workflow_service.submit_question_answer.assert_not_called()
+    handler.context_service.clear_context.assert_called_once_with(student.telegram_id)
+    assert response.message == TelegramMessages.get_reflection_status_active(
+        "Алгоритмы",
+        deadline,
+        1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_button_handler_resumes_student_reflection_upload_from_status():
+    handler = build_button_handler()
+    student = create_student()
+    lection_id = uuid.uuid4()
+    handler.student_service.get_by_telegram_id.return_value = student
+    handler.context_service.get_context.return_value = None
+    handler.reflection_workflow_service.get_reflection_status.return_value = {
+        "lection_id": str(lection_id),
+        "lection_topic": "Теория игр",
+        "lection_deadline": datetime.now(timezone.utc).isoformat(),
+        "reflection_id": str(uuid.uuid4()),
+        "recorded_videos_count": 1,
+        "deadline_active": True,
+    }
+    handler.reflection_workflow_service.start_workflow.return_value = {
+        "lection_id": str(lection_id),
+        "lection_topic": "Теория игр",
+        "lection_deadline": datetime.now(timezone.utc).isoformat(),
+        "stage": "reflection",
+        "reflection_id": str(uuid.uuid4()),
+        "reflection_videos": [],
+        "questions": [],
+        "current_question_index": 0,
+        "current_question_videos": [],
+        "qa_answers": [],
+    }
+
+    response = await handler.handle(
+        f"{TelegramButtons.STUDENT_ADD_REFLECTION_VIDEO}:{lection_id}",
+        student.telegram_id,
+    )
+
+    handler.context_service.set_context.assert_awaited_once_with(
+        student.telegram_id,
+        action="student_reflection_workflow",
+        step="awaiting_reflection_video",
+        data=handler.reflection_workflow_service.start_workflow.return_value,
+    )
+    assert response.message == TelegramMessages.get_reflection_recording_request()
+    assert response.awaiting_input is True
+
+
+@pytest.mark.asyncio
+async def test_button_handler_blocks_resume_student_reflection_upload_after_deadline():
+    handler = build_button_handler()
+    student = create_student()
+    lection_id = uuid.uuid4()
+    deadline = datetime.now(timezone.utc) - timedelta(hours=1)
+    handler.student_service.get_by_telegram_id.return_value = student
+    handler.context_service.get_context.return_value = None
+    handler.reflection_workflow_service.get_reflection_status.return_value = {
+        "lection_id": str(lection_id),
+        "lection_topic": "Теория игр",
+        "lection_deadline": deadline.isoformat(),
+        "reflection_id": str(uuid.uuid4()),
+        "recorded_videos_count": 3,
+        "deadline_active": False,
+    }
+
+    response = await handler.handle(
+        f"{TelegramButtons.STUDENT_APPEND_REFLECTION}:{lection_id}",
+        student.telegram_id,
+    )
+
+    handler.reflection_workflow_service.start_workflow.assert_not_called()
+    assert response.message == TelegramMessages.get_reflection_status_expired(
+        "Теория игр",
+        deadline,
+        3,
+    )
 
 
 @pytest.mark.asyncio

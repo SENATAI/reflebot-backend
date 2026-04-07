@@ -2,7 +2,8 @@
 Парсер Excel файлов для импорта курсов.
 """
 
-from datetime import datetime
+import re
+from datetime import datetime, time
 from typing import BinaryIO
 import openpyxl
 
@@ -24,7 +25,13 @@ class CourseExcelParser(BaseFileParser):
         'Тема лекции': 'topic',
         'Дата': 'date',
         'Время': 'time',
+        'Дата дедлайна': 'deadline_date',
+        'Время дедлайна': 'deadline_time',
+        'Один вопрос из списка': 'one_question_from_list',
         'Вопросы': 'questions',
+    }
+    OPTIONAL_COLUMNS = {
+        'Код курса': 'join_code',
     }
     
     def parse(self, file: BinaryIO) -> list[dict]:
@@ -83,7 +90,11 @@ class CourseExcelParser(BaseFileParser):
             
             # Сохраняем индекс колонки
             column_mapping[self.REQUIRED_COLUMNS[required_col]] = headers.index(required_col)
-        
+
+        for optional_col, alias in self.OPTIONAL_COLUMNS.items():
+            if optional_col in headers:
+                column_mapping[alias] = headers.index(optional_col)
+
         return column_mapping
     
     def _parse_rows(self, worksheet, column_mapping: dict) -> list[dict]:
@@ -122,49 +133,117 @@ class CourseExcelParser(BaseFileParser):
         topic = str(row[column_mapping['topic']]).strip()
         date_value = row[column_mapping['date']]
         time_value = str(row[column_mapping['time']]).strip()
+        deadline_date_value = row[column_mapping['deadline_date']]
+        deadline_time_value = row[column_mapping['deadline_time']]
+        join_code = self._extract_join_code(row, column_mapping)
         questions_value = row[column_mapping['questions']]
-        
+
+        if not topic:
+            raise ValueError("Тема лекции не может быть пустой")
+        if join_code is not None:
+            self._validate_join_code(join_code)
+
         started_at, ended_at = self._parse_datetime_values(date_value, time_value)
-        
+        deadline = self._parse_deadline_values(deadline_date_value, deadline_time_value)
+
+        questions = self._parse_questions(questions_value)
+        one_question_from_list = self._parse_one_question_from_list(
+            row[column_mapping['one_question_from_list']],
+            questions,
+        )
+
         return {
             'topic': topic,
             'started_at': started_at,
             'ended_at': ended_at,
-            "questions": self._parse_questions(questions_value),
+            'deadline': deadline,
+            'join_code': join_code,
+            "questions": questions,
+            "one_question_from_list": one_question_from_list,
         }
 
     def _parse_datetime_values(self, date_value, time_value: str) -> tuple[datetime, datetime]:
         """Распарсить дату и время лекции."""
-        # Парсим дату
-        if isinstance(date_value, datetime):
-            date_obj = date_value.date()
-        elif isinstance(date_value, str):
-            for date_format in ['%m/%d/%Y', '%d.%m.%Y', '%Y-%m-%d']:
-                try:
-                    date_obj = datetime.strptime(date_value.strip(), date_format).date()
-                    break
-                except ValueError:
-                    continue
-            else:
-                raise ValueError(f"Не удалось распарсить дату: {date_value}")
-        else:
-            raise ValueError(f"Неверный формат даты: {date_value}")
+        date_obj = self._parse_date_value(date_value)
 
         time_parts = time_value.replace('–', '-').split('-')
         if len(time_parts) != 2:
             raise ValueError(f"Неверный формат времени: {time_value}")
 
-        start_time = datetime.strptime(time_parts[0].strip(), '%H:%M').time()
-        end_time = datetime.strptime(time_parts[1].strip(), '%H:%M').time()
+        start_time = self._parse_single_time_value(time_parts[0].strip())
+        end_time = self._parse_single_time_value(time_parts[1].strip())
 
         return (
             ensure_utc_datetime(datetime.combine(date_obj, start_time)),
             ensure_utc_datetime(datetime.combine(date_obj, end_time)),
         )
 
+    def _parse_deadline_values(self, date_value, time_value) -> datetime:
+        """Распарсить отдельные дату и время дедлайна."""
+        date_obj = self._parse_date_value(date_value)
+        time_obj = self._parse_single_time_value(time_value)
+        return ensure_utc_datetime(datetime.combine(date_obj, time_obj))
+
+    @staticmethod
+    def _parse_single_time_value(time_value) -> time:
+        """Распарсить одно время в формате HH:MM или HH:MM:SS."""
+        if isinstance(time_value, datetime):
+            return time_value.time().replace(second=0, microsecond=0)
+        if isinstance(time_value, time):
+            return time_value.replace(second=0, microsecond=0)
+
+        raw_time = str(time_value).strip()
+        if not raw_time:
+            raise ValueError("Пустое значение времени")
+        for time_format in ('%H:%M', '%H:%M:%S'):
+            try:
+                return datetime.strptime(raw_time, time_format).time()
+            except ValueError:
+                continue
+        raise ValueError(f"Не удалось распарсить время: {time_value}")
+
+    @staticmethod
+    def _parse_date_value(date_value):
+        """Распарсить дату из поддерживаемых Excel-форматов."""
+        if isinstance(date_value, datetime):
+            return date_value.date()
+        if isinstance(date_value, str):
+            for date_format in ['%m/%d/%Y', '%d.%m.%Y', '%Y-%m-%d']:
+                try:
+                    return datetime.strptime(date_value.strip(), date_format).date()
+                except ValueError:
+                    continue
+            raise ValueError(f"Не удалось распарсить дату: {date_value}")
+        raise ValueError(f"Неверный формат даты: {date_value}")
+
+    @classmethod
+    def _validate_join_code(cls, join_code: str) -> None:
+        """Провалидировать код курса из Excel."""
+        if not join_code:
+            raise ValueError("Код курса не может быть пустым")
+        if len(join_code) < 4:
+            raise ValueError("Код курса должен состоять минимум из 4 символов.")
+        if re.fullmatch(r"[A-Za-z0-9]+", join_code) is None:
+            raise ValueError(
+                "Код курса содержит недопустимые символы. "
+                "Используйте только латинские буквы и цифры."
+            )
+
+    @staticmethod
+    def _extract_join_code(row: tuple, column_mapping: dict) -> str | None:
+        """Достать код курса из строки, если он присутствует в файле."""
+        join_code_index = column_mapping.get("join_code")
+        if join_code_index is None:
+            return None
+        raw_value = row[join_code_index]
+        if raw_value is None:
+            return None
+        normalized = str(raw_value).strip()
+        return normalized or None
+
     @staticmethod
     def _parse_questions(questions_value) -> list[str]:
-        """Распарсить вопросы из ячейки через знак вопроса."""
+        """Распарсить вопросы из ячейки по маркеру новой строки '- '."""
         if questions_value is None:
             return []
 
@@ -172,8 +251,34 @@ class CourseExcelParser(BaseFileParser):
         if not raw_text:
             return []
 
-        return [
-            f"{question.strip()}?"
-            for question in raw_text.split("?")
-            if question.strip()
-        ]
+        normalized = raw_text.replace("\r\n", "\n").replace("\r", "\n")
+        if re.search(r"(?:^|\n)-\s+", normalized):
+            questions = re.split(r"(?:^|\n)-\s+", normalized)
+            return [question.strip() for question in questions if question.strip()]
+        return [normalized]
+
+    @staticmethod
+    def _parse_one_question_from_list(
+        raw_value,
+        questions: list[str],
+    ) -> bool:
+        """Распарсить признак выбора одного вопроса из списка."""
+        if raw_value is None:
+            if len(questions) > 1:
+                raise ValueError(
+                    "Для нескольких вопросов нужно заполнить поле 'Один вопрос из списка' значением 'да' или 'нет'."
+                )
+            return False
+
+        normalized = str(raw_value).strip().lower()
+        if not normalized:
+            if len(questions) > 1:
+                raise ValueError(
+                    "Для нескольких вопросов нужно заполнить поле 'Один вопрос из списка' значением 'да' или 'нет'."
+                )
+            return False
+        if normalized not in {"да", "нет"}:
+            raise ValueError(
+                "Поле 'Один вопрос из списка' должно содержать 'да', 'нет' или быть пустым."
+            )
+        return normalized == "да"

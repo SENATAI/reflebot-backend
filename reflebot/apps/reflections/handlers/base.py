@@ -5,7 +5,11 @@
 from dataclasses import dataclass
 import logging
 
-from reflebot.core.utils.exceptions import PermissionDeniedError, ValidationError
+from reflebot.core.utils.exceptions import (
+    ModelAlreadyExistsError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from ..exceptions import CSVParsingError, ExcelParsingError
 from ..schemas import (
     ActionResponseSchema,
@@ -140,6 +144,12 @@ class BaseHandler:
             return ActionResponseSchema(
                 message=str(exc.detail),
                 awaiting_input=awaiting_input,
+            )
+
+        if isinstance(exc, ModelAlreadyExistsError) and exc.field == "join_code":
+            return ActionResponseSchema(
+                message=TelegramMessages.get_course_join_code_already_exists(),
+                awaiting_input=True,
             )
 
         if self.context_service is not None:

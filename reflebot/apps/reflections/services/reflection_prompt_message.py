@@ -5,6 +5,7 @@
 import uuid
 from typing import Protocol
 
+from ..datetime_utils import is_reflection_deadline_active
 from ..repositories.lection import LectionSessionRepositoryProtocol
 from ..schemas import ReflectionPromptMessageSchema
 from ..telegram.buttons import TelegramButtons
@@ -37,6 +38,25 @@ class ReflectionPromptMessageService(ReflectionPromptMessageServiceProtocol):
         """Построить сообщение с темой лекции для запроса рефлексии."""
         del student_id
         lection = await self.lection_repository.get(lection_session_id)
+        if not is_reflection_deadline_active(lection.deadline):
+            return ReflectionPromptMessageSchema(
+                message_text=TelegramMessages.get_reflection_status_expired_without_videos(
+                    lection.topic,
+                    lection.deadline,
+                ),
+                parse_mode="HTML",
+                buttons=[
+                    {
+                        "text": button.text,
+                        "action": button.action,
+                        "url": button.url,
+                    }
+                    for button in TelegramButtons.get_reflection_status_buttons(
+                        str(lection.id),
+                        deadline_active=False,
+                    )
+                ],
+            )
         return ReflectionPromptMessageSchema(
             message_text=TelegramMessages.get_reflection_prompt_request(
                 lection.topic,
@@ -47,6 +67,7 @@ class ReflectionPromptMessageService(ReflectionPromptMessageServiceProtocol):
                 {
                     "text": button.text,
                     "action": button.action,
+                    "url": button.url,
                 }
                 for button in TelegramButtons.get_reflection_prompt_buttons(str(lection.id))
             ],

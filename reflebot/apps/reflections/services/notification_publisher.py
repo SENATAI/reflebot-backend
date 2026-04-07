@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Protocol
 
 from reflebot.settings import RabbitMQ
-from ..schemas import ReflectionPromptCommandSchema
+from ..schemas import ReflectionPromptCommandSchema, ReflectionPromptDeadlineUpdateCommandSchema
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,13 @@ class NotificationCommandPublisherProtocol(Protocol):
 
     async def publish_reflection_prompt(self, payload: ReflectionPromptCommandSchema) -> None:
         """Опубликовать команду send_reflection_prompt."""
+        ...
+
+    async def publish_reflection_prompt_deadline_update(
+        self,
+        payload: ReflectionPromptDeadlineUpdateCommandSchema,
+    ) -> None:
+        """Опубликовать команду update_reflection_prompt."""
         ...
 
 
@@ -73,15 +80,46 @@ class NotificationCommandPublisher(NotificationCommandPublisherProtocol):
 
     async def publish_reflection_prompt(self, payload: ReflectionPromptCommandSchema) -> None:
         """Опубликовать команду send_reflection_prompt в очередь бота."""
-        body = json.dumps(payload.model_dump(mode="json"), ensure_ascii=False).encode("utf-8")
-        logger.info(
-            "Publishing reflection prompt command.",
+        await self._publish_command(
+            payload=payload,
+            log_action="reflection prompt",
             extra={
                 "delivery_id": str(payload.delivery_id),
                 "student_id": str(payload.student_id),
                 "lection_session_id": str(payload.lection_session_id),
                 "telegram_id": payload.telegram_id,
             },
+        )
+
+    async def publish_reflection_prompt_deadline_update(
+        self,
+        payload: ReflectionPromptDeadlineUpdateCommandSchema,
+    ) -> None:
+        """Опубликовать команду update_reflection_prompt в очередь бота."""
+        await self._publish_command(
+            payload=payload,
+            log_action="reflection prompt deadline update",
+            extra={
+                "delivery_id": str(payload.delivery_id),
+                "student_id": str(payload.student_id),
+                "lection_session_id": str(payload.lection_session_id),
+                "telegram_id": payload.telegram_id,
+                "telegram_message_id": payload.telegram_message_id,
+            },
+        )
+
+    async def _publish_command(
+        self,
+        payload: ReflectionPromptCommandSchema | ReflectionPromptDeadlineUpdateCommandSchema,
+        log_action: str,
+        extra: dict[str, object],
+    ) -> None:
+        """Опубликовать bot-команду в очередь."""
+        body = json.dumps(payload.model_dump(mode="json"), ensure_ascii=False).encode("utf-8")
+        logger.info(
+            "Publishing %s command.",
+            log_action,
+            extra=extra,
         )
         connection = await self.connect_robust(self.rabbitmq.dsn)
         try:
@@ -105,13 +143,9 @@ class NotificationCommandPublisher(NotificationCommandPublisherProtocol):
                 routing_key=self.rabbitmq.reflection_prompt_routing_key,
             )
             logger.info(
-                "Reflection prompt command published.",
-                extra={
-                    "delivery_id": str(payload.delivery_id),
-                    "student_id": str(payload.student_id),
-                    "lection_session_id": str(payload.lection_session_id),
-                    "telegram_id": payload.telegram_id,
-                },
+                "%s command published.",
+                log_action.capitalize(),
+                extra=extra,
             )
         finally:
             close = getattr(connection, "close", None)
