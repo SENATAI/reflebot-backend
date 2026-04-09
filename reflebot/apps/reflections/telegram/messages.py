@@ -105,7 +105,7 @@ class TelegramMessages:
     @staticmethod
     def get_create_admin_request_fullname() -> str:
         """Запрос ФИО администратора."""
-        return "👤 Введите ФИО администратора:"
+        return "👤 Как зовут нового администратора? (Полное имя, например: Иван Иванович Петров)"
     
     @staticmethod
     def get_create_admin_request_username() -> str:
@@ -319,20 +319,21 @@ class TelegramMessages:
             else ""
         )
         return (
-            "Здравствуйте, отправьте рефлексию по лекции:\n"
+            "Здравствуйте! Отправьте рефлексию по лекции:\n"
             f"<b>{lection_topic}</b>."
-            f"{deadline_block}"
+            f"{deadline_block}\n"
+            "👇 Нажмите кнопку ниже, чтобы начать запись кружка рефлексии!"
         )
 
     @staticmethod
     def get_reflection_recording_request() -> str:
         """Сообщение перед записью кружка."""
-        return "Загрузите кружок/видео, я вас слушаю."
+        return "🎙️Загрузите кружок/видео, я вас внимательно слушаю."
 
     @staticmethod
     def get_reflection_video_saved() -> str:
         """Сообщение после успешной записи кружка."""
-        return "Кружок/видео записан, что хотите сделать?"
+        return "Кружок/видео записан, что хотите сделать дальше?"
 
     @staticmethod
     def get_reflection_video_deleted() -> str:
@@ -342,7 +343,7 @@ class TelegramMessages:
     @staticmethod
     def get_reflection_submission_completed() -> str:
         """Сообщение после завершения рефлексии без вопросов."""
-        return "Спасибо за рефлексию."
+        return "✅ Рефлексия принята! Спасибо за ваш ответ."
 
     @staticmethod
     def get_question_reflection_prompt(
@@ -372,7 +373,7 @@ class TelegramMessages:
     @staticmethod
     def get_questions_completed_message() -> str:
         """Сообщение после завершения всех вопросов."""
-        return "Вопросов больше нет. Спасибо за рефлексию."
+        return "Вы ответили на все вопросы. Спасибо за рефлексию!"
 
     @staticmethod
     def get_reflection_status_active(
@@ -417,12 +418,12 @@ class TelegramMessages:
     @staticmethod
     def get_reflection_already_submitted() -> str:
         """Сообщение, если рефлексия по лекции уже отправлена."""
-        return "Рефлексия по этой лекции уже отправлена."
+        return "Рефлексия по этой лекции уже отправлена вами."
 
     @staticmethod
     def get_student_course_code_request() -> str:
         """Сообщение с просьбой ввести код курса."""
-        return "Привет, студент, введи код курса."
+        return "Привет, студент! Введите код курса, который вам сообщили, чтобы записаться на него"
 
     @staticmethod
     def get_student_course_fullname_request(course_name: str) -> str:
@@ -432,7 +433,7 @@ class TelegramMessages:
     @staticmethod
     def get_join_course_code_request() -> str:
         """Сообщение для команды join_course."""
-        return "Введите код курса."
+        return "Введите код курса, чтобы записаться на него:"
 
     @staticmethod
     def get_course_code_not_found() -> str:
@@ -442,7 +443,7 @@ class TelegramMessages:
     @staticmethod
     def get_student_course_registered(course_name: str) -> str:
         """Сообщение об успешной записи студента на курс."""
-        return f"Вы успешно записались на курс: <b>{course_name}</b>."
+        return f"Вы успешно записались на курс: <b>{course_name}</b>. \n\nТеперь осталось дождаться уведомления о завершении первой лекции — и можно будет отправить рефлексию."
 
     @staticmethod
     def get_join_course_permission_denied() -> str:
