@@ -9,11 +9,13 @@ from reflebot.core.use_cases import UseCaseProtocol
 from ..services.course import CourseServiceProtocol
 from ..services.teacher import TeacherServiceProtocol
 from ..services.student import StudentServiceProtocol
+from ..services.notification_publisher import NotificationCommandPublisherProtocol
 from ..services.lection import LectionServiceProtocol
 from ..services.question import QuestionServiceProtocol
 from ..schemas import (
     CourseSessionReadSchema,
     AdminReadSchema,
+    CourseBroadcastCommandSchema,
     TeacherReadSchema,
 )
 from ..parsers.base import FileParserProtocol
@@ -28,6 +30,30 @@ class CreateCourseFromExcelUseCaseProtocol(UseCaseProtocol[CourseSessionReadSche
         excel_file: BinaryIO,
         current_admin: AdminReadSchema,
     ) -> CourseSessionReadSchema:
+        ...
+
+
+class AppendCourseFromExcelUseCaseProtocol(UseCaseProtocol[int]):
+    """Протокол use case догрузки лекций в существующий курс из Excel."""
+
+    async def __call__(
+        self,
+        course_id: uuid.UUID,
+        excel_file: BinaryIO,
+        current_admin: AdminReadSchema,
+    ) -> int:
+        ...
+
+
+class SendCourseBroadcastMessageUseCaseProtocol(UseCaseProtocol[int]):
+    """Протокол use case отправки сообщения всем студентам курса."""
+
+    async def __call__(
+        self,
+        course_id: uuid.UUID,
+        message_text: str,
+        current_admin: AdminReadSchema,
+    ) -> int:
         ...
 
 
@@ -80,7 +106,7 @@ class CreateCourseFromExcelUseCase(CreateCourseFromExcelUseCaseProtocol):
                 "started_at": lection["started_at"],
                 "ended_at": lection["ended_at"],
                 "deadline": lection["deadline"],
-                "one_question_from_list": lection.get("one_question_from_list", False),
+                "questions_to_ask_count": lection.get("questions_to_ask_count"),
             }
             for lection in parsed_lections_data
         ]
@@ -117,6 +143,100 @@ class CreateCourseFromExcelUseCase(CreateCourseFromExcelUseCaseProtocol):
                 await self.question_service.create_question(matched_lection.id, question_text)
         
         return course
+
+
+class AppendCourseFromExcelUseCase(AppendCourseFromExcelUseCaseProtocol):
+    """Use case для догрузки новых лекций в существующий курс."""
+
+    def __init__(
+        self,
+        course_service: CourseServiceProtocol,
+        question_service: QuestionServiceProtocol,
+        student_service: StudentServiceProtocol,
+        parser: FileParserProtocol,
+    ):
+        self.course_service = course_service
+        self.question_service = question_service
+        self.student_service = student_service
+        self.parser = parser
+
+    async def __call__(
+        self,
+        course_id: uuid.UUID,
+        excel_file: BinaryIO,
+        current_admin: AdminReadSchema,
+    ) -> int:
+        """Догрузить лекции в курс и привязать новые лекции к текущим студентам курса."""
+        parsed_lections_data = self.parser.parse(excel_file)
+        lections_data = [
+            {
+                "topic": lection["topic"],
+                "started_at": lection["started_at"],
+                "ended_at": lection["ended_at"],
+                "deadline": lection["deadline"],
+                "questions_to_ask_count": lection.get("questions_to_ask_count"),
+            }
+            for lection in parsed_lections_data
+        ]
+        created_lections = await self.course_service.append_lections_to_course(
+            course_id=course_id,
+            lections_data=lections_data,
+        )
+        for created_lection, parsed_lection in zip(created_lections, parsed_lections_data, strict=False):
+            for question_text in parsed_lection.get("questions", []):
+                await self.question_service.create_question(created_lection.id, question_text)
+
+        students_response = await self.student_service.get_students_by_course(
+            course_id=course_id,
+            page=1,
+            page_size=10_000,
+        )
+        await self.student_service.attach_to_lections(
+            student_ids=[student.id for student in students_response["items"]],
+            lection_ids=[lection.id for lection in created_lections],
+        )
+        return len(created_lections)
+
+
+class SendCourseBroadcastMessageUseCase(SendCourseBroadcastMessageUseCaseProtocol):
+    """Use case отправки произвольного сообщения всем студентам курса."""
+
+    def __init__(
+        self,
+        student_service: StudentServiceProtocol,
+        publisher: NotificationCommandPublisherProtocol,
+    ):
+        self.student_service = student_service
+        self.publisher = publisher
+
+    async def __call__(
+        self,
+        course_id: uuid.UUID,
+        message_text: str,
+        current_admin: AdminReadSchema,
+    ) -> int:
+        """Поставить в отправку сообщение всем студентам курса с telegram_id."""
+        students_response = await self.student_service.get_students_by_course(
+            course_id=course_id,
+            page=1,
+            page_size=10_000,
+        )
+        sent_count = 0
+        for student in students_response["items"]:
+            if student.telegram_id is None:
+                continue
+            await self.publisher.publish_course_message(
+                CourseBroadcastCommandSchema(
+                    course_id=course_id,
+                    student_id=student.id,
+                    telegram_id=student.telegram_id,
+                    message_text=message_text,
+                    parse_mode="HTML",
+                    buttons=[],
+                )
+            )
+            sent_count += 1
+        return sent_count
 
 
 class AttachTeachersToCourseUseCaseProtocol(UseCaseProtocol[TeacherReadSchema]):

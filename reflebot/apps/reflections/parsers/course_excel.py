@@ -27,7 +27,7 @@ class CourseExcelParser(BaseFileParser):
         'Время': 'time',
         'Дата дедлайна': 'deadline_date',
         'Время дедлайна': 'deadline_time',
-        'Один вопрос из списка': 'one_question_from_list',
+        'Количество задаваемых вопросов': 'questions_to_ask_count',
         'Вопросы': 'questions',
     }
     OPTIONAL_COLUMNS = {
@@ -147,8 +147,8 @@ class CourseExcelParser(BaseFileParser):
         deadline = self._parse_deadline_values(deadline_date_value, deadline_time_value)
 
         questions = self._parse_questions(questions_value)
-        one_question_from_list = self._parse_one_question_from_list(
-            row[column_mapping['one_question_from_list']],
+        questions_to_ask_count = self._parse_questions_to_ask_count(
+            row[column_mapping['questions_to_ask_count']],
             questions,
         )
 
@@ -159,7 +159,7 @@ class CourseExcelParser(BaseFileParser):
             'deadline': deadline,
             'join_code': join_code,
             "questions": questions,
-            "one_question_from_list": one_question_from_list,
+            "questions_to_ask_count": questions_to_ask_count,
         }
 
     def _parse_datetime_values(self, date_value, time_value: str) -> tuple[datetime, datetime]:
@@ -258,27 +258,36 @@ class CourseExcelParser(BaseFileParser):
         return [normalized]
 
     @staticmethod
-    def _parse_one_question_from_list(
+    def _parse_questions_to_ask_count(
         raw_value,
         questions: list[str],
-    ) -> bool:
-        """Распарсить признак выбора одного вопроса из списка."""
-        if raw_value is None:
-            if len(questions) > 1:
-                raise ValueError(
-                    "Для нескольких вопросов нужно заполнить поле 'Один вопрос из списка' значением 'да' или 'нет'."
-                )
-            return False
+    ) -> int | None:
+        """Распарсить количество вопросов, которое нужно задать студенту."""
+        total_questions = len(questions)
+        normalized = "" if raw_value is None else str(raw_value).strip()
 
-        normalized = str(raw_value).strip().lower()
         if not normalized:
-            if len(questions) > 1:
-                raise ValueError(
-                    "Для нескольких вопросов нужно заполнить поле 'Один вопрос из списка' значением 'да' или 'нет'."
-                )
-            return False
-        if normalized not in {"да", "нет"}:
+            if total_questions == 0:
+                return None
+            if total_questions == 1:
+                return 1
             raise ValueError(
-                "Поле 'Один вопрос из списка' должно содержать 'да', 'нет' или быть пустым."
+                "Для нескольких вопросов нужно заполнить поле 'Количество задаваемых вопросов'."
             )
-        return normalized == "да"
+
+        try:
+            parsed_value = int(float(normalized))
+        except ValueError as exc:
+            raise ValueError(
+                "Поле 'Количество задаваемых вопросов' должно содержать целое число."
+            ) from exc
+
+        if parsed_value < 1:
+            raise ValueError(
+                "Поле 'Количество задаваемых вопросов' должно быть больше нуля."
+            )
+        if parsed_value > total_questions:
+            raise ValueError(
+                "Количество задаваемых вопросов больше, чем число вопросов в лекции."
+            )
+        return parsed_value

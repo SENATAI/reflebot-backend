@@ -84,6 +84,10 @@ from .use_cases.admin import (
     AdminLoginUseCaseProtocol,
 )
 from .use_cases.course import (
+    AppendCourseFromExcelUseCase,
+    AppendCourseFromExcelUseCaseProtocol,
+    SendCourseBroadcastMessageUseCase,
+    SendCourseBroadcastMessageUseCaseProtocol,
     AttachStudentsToCourseUseCase,
     AttachStudentsToCourseUseCaseProtocol,
     AttachTeachersToCourseUseCase,
@@ -502,6 +506,32 @@ def get_create_course_from_excel_use_case(
     )
 
 
+def get_append_course_from_excel_use_case(
+    course_service: CourseServiceProtocol = Depends(get_course_service),
+    question_service: QuestionServiceProtocol = Depends(get_question_service),
+    student_service: StudentServiceProtocol = Depends(get_student_service),
+    parser: FileParserProtocol = Depends(get_course_excel_parser),
+) -> AppendCourseFromExcelUseCaseProtocol:
+    """Получить use case догрузки лекций в существующий курс."""
+    return AppendCourseFromExcelUseCase(
+        course_service=course_service,
+        question_service=question_service,
+        student_service=student_service,
+        parser=parser,
+    )
+
+
+def get_send_course_broadcast_message_use_case(
+    student_service: StudentServiceProtocol = Depends(get_student_service),
+    publisher: NotificationCommandPublisherProtocol = Depends(get_notification_command_publisher),
+) -> SendCourseBroadcastMessageUseCaseProtocol:
+    """Получить use case отправки сообщения всем студентам курса."""
+    return SendCourseBroadcastMessageUseCase(
+        student_service=student_service,
+        publisher=publisher,
+    )
+
+
 def get_attach_teachers_to_course_use_case(
     teacher_service: TeacherServiceProtocol = Depends(get_teacher_service),
     lection_service: LectionServiceProtocol = Depends(get_lection_service),
@@ -732,6 +762,9 @@ def get_text_input_handler(
     student_service: StudentServiceProtocol = Depends(get_student_service),
     create_admin_use_case: CreateAdminUseCaseProtocol = Depends(get_create_admin_use_case),
     attach_teachers_to_course_use_case: AttachTeachersToCourseUseCaseProtocol = Depends(get_attach_teachers_to_course_use_case),
+    send_course_broadcast_message_use_case: SendCourseBroadcastMessageUseCaseProtocol = Depends(
+        get_send_course_broadcast_message_use_case
+    ),
     update_lection_use_case: UpdateLectionUseCaseProtocol = Depends(get_update_lection_use_case),
     manage_questions_use_case: ManageQuestionsUseCaseProtocol = Depends(get_manage_questions_use_case),
     student_history_log_service: StudentHistoryLogServiceProtocol = Depends(
@@ -747,6 +780,7 @@ def get_text_input_handler(
         student_service=student_service,
         create_admin_use_case=create_admin_use_case,
         attach_teachers_to_course_use_case=attach_teachers_to_course_use_case,
+        send_course_broadcast_message_use_case=send_course_broadcast_message_use_case,
         update_lection_use_case=update_lection_use_case,
         manage_questions_use_case=manage_questions_use_case,
         student_history_log_service=student_history_log_service,
@@ -757,6 +791,7 @@ def get_text_input_handler(
 def get_file_upload_handler(
     context_service: ContextServiceProtocol = Depends(get_context_service),
     create_course_from_excel_use_case: CreateCourseFromExcelUseCaseProtocol = Depends(get_create_course_from_excel_use_case),
+    append_course_from_excel_use_case: AppendCourseFromExcelUseCaseProtocol = Depends(get_append_course_from_excel_use_case),
     attach_students_to_course_use_case: AttachStudentsToCourseUseCaseProtocol = Depends(get_attach_students_to_course_use_case),
     manage_files_use_case: ManageFilesUseCaseProtocol = Depends(get_manage_files_use_case),
     reflection_workflow_service: ReflectionWorkflowServiceProtocol = Depends(
@@ -771,6 +806,7 @@ def get_file_upload_handler(
     return FileUploadHandler(
         context_service=context_service,
         create_course_from_excel_use_case=create_course_from_excel_use_case,
+        append_course_from_excel_use_case=append_course_from_excel_use_case,
         attach_students_to_course_use_case=attach_students_to_course_use_case,
         manage_files_use_case=manage_files_use_case,
         reflection_workflow_service=reflection_workflow_service,
@@ -794,6 +830,14 @@ AttachTeachersToCourseUseCaseDep = Annotated[
 AttachStudentsToCourseUseCaseDep = Annotated[
     AttachStudentsToCourseUseCaseProtocol,
     Depends(get_attach_students_to_course_use_case),
+]
+AppendCourseFromExcelUseCaseDep = Annotated[
+    AppendCourseFromExcelUseCaseProtocol,
+    Depends(get_append_course_from_excel_use_case),
+]
+SendCourseBroadcastMessageUseCaseDep = Annotated[
+    SendCourseBroadcastMessageUseCaseProtocol,
+    Depends(get_send_course_broadcast_message_use_case),
 ]
 LectionServiceDep = Annotated[LectionServiceProtocol, Depends(get_lection_service)]
 QuestionServiceDep = Annotated[QuestionServiceProtocol, Depends(get_question_service)]

@@ -44,6 +44,8 @@ class TelegramButtons:
     
     # Действия для управления курсом
     COURSE_VIEW_PARSED_LECTIONS = "course_view_parsed_lections"
+    COURSE_APPEND_LECTIONS = "course_append_lections"
+    COURSE_SEND_MESSAGE = "course_send_message"
     COURSE_ADD_DEFAULT_QUESTIONS = "course_add_default_questions"
     COURSE_ATTACH_TEACHERS = "course_attach_teachers"
     COURSE_ATTACH_STUDENTS = "course_attach_students"
@@ -231,6 +233,24 @@ class TelegramButtons:
                 ),
             )
         return buttons
+
+    @staticmethod
+    def get_admin_course_details_buttons() -> list[TelegramButton]:
+        """Получить кнопки карточки курса в разделе курсов."""
+        return [
+            TelegramButton(
+                text="📥 Догрузить курс",
+                action=TelegramButtons.COURSE_APPEND_LECTIONS,
+            ),
+            TelegramButton(
+                text="✉️ Отправить сообщение студентам",
+                action=TelegramButtons.COURSE_SEND_MESSAGE,
+            ),
+            TelegramButton(
+                text="⬅️ Назад",
+                action=TelegramButtons.BACK,
+            ),
+        ]
     
     @staticmethod
     def get_lection_details_buttons() -> list[TelegramButton]:

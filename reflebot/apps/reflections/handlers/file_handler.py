@@ -15,6 +15,7 @@ from ..services.reflection import ReflectionWorkflowServiceProtocol
 from ..services.student_history_log import StudentHistoryLogServiceProtocol
 from ..telegram.messages import TelegramMessages
 from ..use_cases.course import (
+    AppendCourseFromExcelUseCaseProtocol,
     AttachStudentsToCourseUseCaseProtocol,
     CreateCourseFromExcelUseCaseProtocol,
 )
@@ -42,6 +43,7 @@ class FileUploadHandler(FileUploadHandlerProtocol):
         self,
         context_service: ContextServiceProtocol,
         create_course_from_excel_use_case: CreateCourseFromExcelUseCaseProtocol,
+        append_course_from_excel_use_case: AppendCourseFromExcelUseCaseProtocol,
         attach_students_to_course_use_case: AttachStudentsToCourseUseCaseProtocol,
         manage_files_use_case: ManageFilesUseCaseProtocol,
         reflection_workflow_service: ReflectionWorkflowServiceProtocol,
@@ -50,6 +52,7 @@ class FileUploadHandler(FileUploadHandlerProtocol):
     ):
         self.context_service = context_service
         self.create_course_from_excel_use_case = create_course_from_excel_use_case
+        self.append_course_from_excel_use_case = append_course_from_excel_use_case
         self.attach_students_to_course_use_case = attach_students_to_course_use_case
         self.manage_files_use_case = manage_files_use_case
         self.reflection_workflow_service = reflection_workflow_service
@@ -124,6 +127,22 @@ class FileUploadHandler(FileUploadHandlerProtocol):
                 )
                 await self.context_service.push_navigation(telegram_id, "course_menu")
                 return await self.button_handler.render_course_menu(telegram_id, course.id)
+
+            if action == "append_course_lections":
+                if file is None:
+                    raise ValidationError("file", "Для догрузки курса нужен Excel файл.")
+                course_id = self._parse_uuid(data["course_id"])
+                lections_count = await self.append_course_from_excel_use_case(
+                    course_id=course_id,
+                    excel_file=file.file,
+                    current_admin=current_admin,
+                )
+                return await self.button_handler.render_admin_course_details(
+                    telegram_id,
+                    course_id,
+                    page=int(data.get("page", 1)),
+                    message_prefix=TelegramMessages.get_course_appended_success(lections_count),
+                )
 
             if action == "attach_students":
                 if file is None:

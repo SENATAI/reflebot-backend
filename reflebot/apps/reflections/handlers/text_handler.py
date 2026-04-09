@@ -16,7 +16,10 @@ from ..services.student_history_log import StudentHistoryLogServiceProtocol
 from ..telegram.buttons import TelegramButtons
 from ..telegram.messages import TelegramMessages
 from ..use_cases.admin import CreateAdminUseCaseProtocol
-from ..use_cases.course import AttachTeachersToCourseUseCaseProtocol
+from ..use_cases.course import (
+    AttachTeachersToCourseUseCaseProtocol,
+    SendCourseBroadcastMessageUseCaseProtocol,
+)
 from ..use_cases.lection import ManageQuestionsUseCaseProtocol, UpdateLectionUseCaseProtocol
 from .base import BaseHandler
 from .button_handler import ButtonActionHandler
@@ -43,6 +46,7 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
         student_service,
         create_admin_use_case: CreateAdminUseCaseProtocol,
         attach_teachers_to_course_use_case: AttachTeachersToCourseUseCaseProtocol,
+        send_course_broadcast_message_use_case: SendCourseBroadcastMessageUseCaseProtocol,
         update_lection_use_case: UpdateLectionUseCaseProtocol,
         manage_questions_use_case: ManageQuestionsUseCaseProtocol,
         button_handler: ButtonActionHandler,
@@ -57,6 +61,7 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
         self.context_service = context_service
         self.create_admin_use_case = create_admin_use_case
         self.attach_teachers_to_course_use_case = attach_teachers_to_course_use_case
+        self.send_course_broadcast_message_use_case = send_course_broadcast_message_use_case
         self.update_lection_use_case = update_lection_use_case
         self.manage_questions_use_case = manage_questions_use_case
         self.button_handler = button_handler
@@ -128,6 +133,27 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                 return ActionResponseSchema(
                     message=TelegramMessages.get_create_course_request_file(),
                     awaiting_input=True,
+                )
+            if action == "course_broadcast_message" and step == "awaiting_message_text":
+                current_admin = await self.button_handler._require_admin(telegram_id)
+                if not normalized_text:
+                    return await self._validation_failure(
+                        telegram_id,
+                        action,
+                        step,
+                        data,
+                        TelegramMessages.get_validation_error_empty_message(),
+                    )
+                sent_count = await self.send_course_broadcast_message_use_case(
+                    course_id=uuid.UUID(str(data["course_id"])),
+                    message_text=normalized_text,
+                    current_admin=current_admin,
+                )
+                return await self.button_handler.render_admin_course_details(
+                    telegram_id,
+                    uuid.UUID(str(data["course_id"])),
+                    page=int(data.get("page", 1)),
+                    message_prefix=TelegramMessages.get_course_broadcast_success(sent_count),
                 )
             if action in {"register_course_by_code", "join_course"} and step == "awaiting_course_code":
                 try:

@@ -30,6 +30,7 @@ def create_lection(topic: str = "Лекция") -> LectionSessionReadSchema:
         ended_at=now,
         deadline=now + timedelta(hours=24),
         one_question_from_list=False,
+        questions_to_ask_count=None,
         created_at=now,
         updated_at=now,
     )
@@ -84,10 +85,10 @@ async def test_start_workflow_allows_existing_reflection_for_dozapis():
 
 
 @pytest.mark.asyncio
-async def test_start_workflow_preserves_one_question_from_list_flag():
+async def test_start_workflow_selects_only_requested_number_of_questions():
     repository = AsyncMock()
     lection = create_lection()
-    lection.one_question_from_list = True
+    lection.questions_to_ask_count = 1
     repository.get_lection_for_student.return_value = lection
     repository.get_reflection_for_student.return_value = None
     repository.get_questions_for_lection.return_value = [
@@ -98,7 +99,9 @@ async def test_start_workflow_preserves_one_question_from_list_flag():
 
     result = await service.start_workflow(uuid.uuid4(), uuid.uuid4())
 
-    assert result["one_question_from_list"] is True
+    assert result["one_question_from_list"] is False
+    assert result["questions_to_ask_count"] == 1
+    assert len(result["questions"]) == 1
 
 
 @pytest.mark.asyncio
@@ -179,7 +182,7 @@ async def test_submit_reflection_appends_videos_to_existing_reflection():
     assert updated["reflection_videos"] == []
 
 
-def test_should_select_single_question_returns_true_only_for_multi_question_mode():
+def test_should_select_single_question_returns_true_only_for_legacy_contexts():
     repository = AsyncMock()
     service = ReflectionWorkflowService(repository)
 

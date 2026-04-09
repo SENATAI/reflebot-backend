@@ -10,6 +10,7 @@ import uuid
 import pytest
 
 from reflebot.apps.reflections.schemas import (
+    CourseBroadcastCommandSchema,
     ReflectionPromptCommandSchema,
     ReflectionPromptDeadlineUpdateCommandSchema,
 )
@@ -117,6 +118,42 @@ async def test_notification_command_publisher_publishes_deadline_update_command(
     )
 
     await publisher.publish_reflection_prompt_deadline_update(payload)
+
+    channel.declare_exchange.assert_called_once()
+    channel.declare_queue.assert_called_once_with("bot.reflection-prompts", durable=True)
+    queue.bind.assert_called_once()
+    exchange.publish.assert_called_once()
+    connection.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_notification_command_publisher_publishes_course_message_command():
+    connection = AsyncMock()
+    channel = AsyncMock()
+    exchange = AsyncMock()
+    queue = AsyncMock()
+    connection.channel.return_value = channel
+    channel.declare_exchange.return_value = exchange
+    channel.declare_queue.return_value = queue
+
+    async def connect_robust(_: str):
+        return connection
+
+    publisher = NotificationCommandPublisher(
+        rabbitmq=RabbitMQ(),
+        connect_robust=connect_robust,
+        message_factory=lambda body: SimpleAMQPMessage(body=body),
+    )
+    payload = CourseBroadcastCommandSchema(
+        course_id=uuid.uuid4(),
+        student_id=uuid.uuid4(),
+        telegram_id=12345,
+        message_text="course hello",
+        parse_mode="HTML",
+        buttons=[],
+    )
+
+    await publisher.publish_course_message(payload)
 
     channel.declare_exchange.assert_called_once()
     channel.declare_queue.assert_called_once_with("bot.reflection-prompts", durable=True)
