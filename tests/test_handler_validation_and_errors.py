@@ -94,6 +94,7 @@ def create_text_handler(
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -221,6 +222,7 @@ async def test_property_30_parser_error_message_clarity(detail: str):
     file_handler = FileUploadHandler(
         context_service=context_service,
         create_course_from_excel_use_case=AsyncMock(side_effect=CSVParsingError(detail)),
+        append_course_from_excel_use_case=AsyncMock(),
         attach_students_to_course_use_case=AsyncMock(),
         manage_files_use_case=AsyncMock(),
         reflection_workflow_service=AsyncMock(),
@@ -312,6 +314,7 @@ async def test_file_handler_returns_friendly_message_for_duplicate_course_join_c
                 "duplicate key for field: join_code",
             )
         ),
+        append_course_from_excel_use_case=AsyncMock(),
         attach_students_to_course_use_case=AsyncMock(),
         manage_files_use_case=AsyncMock(),
         reflection_workflow_service=AsyncMock(),

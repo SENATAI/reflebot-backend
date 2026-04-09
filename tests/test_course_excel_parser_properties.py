@@ -28,7 +28,7 @@ COURSE_HEADERS = [
     'Дата дедлайна',
     'Время дедлайна',
     'Код курса',
-    'Один вопрос из списка',
+    'Количество задаваемых вопросов',
     'Вопросы',
 ]
 
@@ -40,7 +40,7 @@ def build_course_row(
     deadline_date_value=None,
     deadline_time_value: str = "23:59",
     join_code: str = "ABCD",
-    one_question_from_list: str = "",
+    questions_to_ask_count: str = "",
     questions: str = "Что это такое?",
 ) -> list:
     """Собрать строку Excel нового формата."""
@@ -51,7 +51,7 @@ def build_course_row(
         deadline_date_value if deadline_date_value is not None else date_value,
         deadline_time_value,
         join_code,
-        one_question_from_list,
+        questions_to_ask_count,
         questions,
     ]
 
@@ -88,7 +88,7 @@ def create_excel_file(headers: list[str], rows: list[list]) -> io.BytesIO:
             'Время',
             'Дата дедлайна',
             'Время дедлайна',
-            'Один вопрос из списка',
+            'Количество задаваемых вопросов',
             'Вопросы',
         ]
     ),
@@ -125,7 +125,7 @@ def test_property_9_excel_parser_missing_column_validation(
         'Время',
         'Дата дедлайна',
         'Время дедлайна',
-        'Один вопрос из списка',
+        'Количество задаваемых вопросов',
         'Вопросы',
     ]
     headers = [col for col in required_columns if col != missing_column]
@@ -576,7 +576,7 @@ def test_parser_allows_missing_join_code_column_and_returns_none():
         'Время',
         'Дата дедлайна',
         'Время дедлайна',
-        'Один вопрос из списка',
+        'Количество задаваемых вопросов',
         'Вопросы',
     ]
     rows = [[
@@ -620,7 +620,7 @@ def test_parser_returns_empty_course_name(row_count):
                 '02.01.2024',
                 '20:00',
                 'ABCD',
-                'нет',
+                '2',
                 '- Q1\n- Q2',
             )
         )
@@ -647,7 +647,7 @@ def test_parser_splits_questions_by_dash_marker():
                     '02.01.2024',
                     '20:00',
                     'ABCD',
-                    'нет',
+                    '1',
                     '- Что запомнилось?\n- Что было сложным?',
                 )
             ],
@@ -658,11 +658,11 @@ def test_parser_splits_questions_by_dash_marker():
         'Что запомнилось?',
         'Что было сложным?',
     ]
-    assert lections[0]['one_question_from_list'] is False
+    assert lections[0]['questions_to_ask_count'] == 1
 
 
-def test_parser_requires_one_question_flag_for_multiple_questions():
-    """Для нескольких вопросов нужно явно заполнить поле выбора одного вопроса."""
+def test_parser_requires_questions_count_for_multiple_questions():
+    """Для нескольких вопросов нужно явно заполнить количество задаваемых вопросов."""
     parser = CourseExcelParser()
 
     with pytest.raises(ExcelFileDateParseError) as exc_info:
@@ -684,36 +684,37 @@ def test_parser_requires_one_question_flag_for_multiple_questions():
             )
         )
 
-    assert "Один вопрос из списка" in str(exc_info.value.detail)
+    assert "Количество задаваемых вопросов" in str(exc_info.value.detail)
 
 
-def test_parser_accepts_one_question_flag_yes_for_multiple_questions():
-    """При значении 'да' нужно сохранять сценарий выбора одного вопроса."""
+def test_parser_rejects_questions_count_greater_than_total_questions():
+    """Нельзя запрашивать больше вопросов, чем их есть в лекции."""
     parser = CourseExcelParser()
 
-    lections = parser.parse(
-        create_excel_file(
-            COURSE_HEADERS,
-            [
-                build_course_row(
-                    'Test Lection',
-                    '01.01.2024',
-                    '10:00-12:00',
-                    '02.01.2024',
-                    '20:00',
-                    'ABCD',
-                    'да',
-                    '- Первый вопрос\n- Второй вопрос',
-                )
-            ],
+    with pytest.raises(ExcelFileDateParseError) as exc_info:
+        parser.parse(
+            create_excel_file(
+                COURSE_HEADERS,
+                [
+                    build_course_row(
+                        'Test Lection',
+                        '01.01.2024',
+                        '10:00-12:00',
+                        '02.01.2024',
+                        '20:00',
+                        'ABCD',
+                        '3',
+                        '- Первый вопрос\n- Второй вопрос',
+                    )
+                ],
+            )
         )
-    )
 
-    assert lections[0]['one_question_from_list'] is True
+    assert "больше, чем число вопросов" in str(exc_info.value.detail)
 
 
-def test_parser_allows_empty_one_question_flag_when_question_is_single():
-    """Для одного вопроса поле выбора из списка может быть пустым."""
+def test_parser_uses_single_question_count_when_question_is_single():
+    """Для одного вопроса количество может не заполняться."""
     parser = CourseExcelParser()
 
     lections = parser.parse(
@@ -735,4 +736,4 @@ def test_parser_allows_empty_one_question_flag_when_question_is_single():
     )
 
     assert lections[0]['questions'] == ['Один вопрос без списка']
-    assert lections[0]['one_question_from_list'] is False
+    assert lections[0]['questions_to_ask_count'] == 1

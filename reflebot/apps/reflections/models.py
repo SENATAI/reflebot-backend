@@ -81,6 +81,10 @@ class LectionSession(Base, TimestampMixin):
         nullable=False,
         default=False,
     )
+    questions_to_ask_count: Mapped[int | None] = mapped_column(
+        sa.Integer,
+        nullable=True,
+    )
 
     # Relationships
     course_session: Mapped["CourseSession"] = relationship(back_populates="lection_sessions")

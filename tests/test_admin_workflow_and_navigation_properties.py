@@ -84,6 +84,7 @@ def build_text_handler(
         student_service=button_handler.student_service,
         create_admin_use_case=create_admin_use_case,
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,

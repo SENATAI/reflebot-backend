@@ -251,6 +251,11 @@ class LectionSessionBaseSchema(BaseModel):
         default=False,
         description="Нужно ли студенту выбрать только один вопрос из списка",
     )
+    questions_to_ask_count: int | None = Field(
+        default=None,
+        ge=1,
+        description="Количество вопросов, которое нужно задать студенту по этой лекции",
+    )
 
 
 class LectionSessionCreateSchema(LectionSessionBaseSchema, CreateBaseModel):
@@ -595,6 +600,21 @@ class ReflectionPromptDeadlineUpdateCommandSchema(BaseModel):
     buttons: list[TelegramButtonSchema] = Field(
         default_factory=list,
         description="Актуальные inline-кнопки после дедлайна",
+    )
+
+
+class CourseBroadcastCommandSchema(BaseModel):
+    """Команда отправки произвольного сообщения студенту курса."""
+
+    event_type: Literal["send_course_message"] = "send_course_message"
+    course_id: uuid.UUID = Field(..., description="ID курса")
+    student_id: uuid.UUID = Field(..., description="ID студента")
+    telegram_id: int = Field(..., description="Telegram ID студента")
+    message_text: str = Field(..., description="Текст сообщения")
+    parse_mode: str = Field(default="HTML", description="Telegram parse mode")
+    buttons: list[TelegramButtonSchema] = Field(
+        default_factory=list,
+        description="Inline-кнопки сообщения студенту",
     )
 
 

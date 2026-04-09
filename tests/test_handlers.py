@@ -169,6 +169,7 @@ async def test_text_handler_processes_context_based_fullname_step():
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -204,6 +205,7 @@ async def test_text_handler_cleans_up_context_on_admin_creation_completion():
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(return_value=created_admin),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -238,6 +240,7 @@ async def test_text_handler_course_code_prompts_new_student_for_fullname():
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -287,6 +290,7 @@ async def test_text_handler_registers_new_student_after_fullname():
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -319,6 +323,7 @@ async def test_text_handler_join_course_prompts_existing_student_for_code():
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -367,6 +372,7 @@ async def test_text_handler_join_course_attaches_existing_student_by_code():
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -406,6 +412,7 @@ async def test_text_handler_join_course_returns_validation_message_when_code_not
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -434,6 +441,7 @@ async def test_text_handler_join_course_prompts_admin_without_student_role_for_c
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -482,6 +490,7 @@ async def test_text_handler_join_course_creates_student_for_admin_without_studen
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -524,6 +533,7 @@ async def test_text_handler_teacher_attach_completion_shows_finish_creation_butt
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=attach_teachers_use_case,
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -572,6 +582,7 @@ async def test_text_handler_create_course_requests_file_after_course_name():
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -654,7 +665,55 @@ async def test_render_admin_course_details_shows_course_code_and_back_button():
 
     assert course.name in response.message
     assert course.join_code in response.message
-    assert [button.action for button in response.buttons] == [TelegramButtons.BACK]
+    assert [button.action for button in response.buttons] == [
+        TelegramButtons.COURSE_APPEND_LECTIONS,
+        TelegramButtons.COURSE_SEND_MESSAGE,
+        TelegramButtons.BACK,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_button_handler_starts_append_course_lections_flow():
+    button_handler = build_button_handler()
+    course = create_course()
+    button_handler.context_service.get_context.return_value = {
+        "action": "admin_course_details",
+        "step": "view",
+        "data": {"course_id": str(course.id), "page": 2},
+    }
+
+    response = await button_handler.handle(TelegramButtons.COURSE_APPEND_LECTIONS, 1)
+
+    button_handler.context_service.set_context.assert_awaited_once_with(
+        1,
+        action="append_course_lections",
+        step="awaiting_course_file",
+        data={"course_id": str(course.id), "page": 2},
+    )
+    assert response.message == TelegramMessages.get_append_course_request_file()
+    assert response.awaiting_input is True
+
+
+@pytest.mark.asyncio
+async def test_button_handler_starts_course_broadcast_flow():
+    button_handler = build_button_handler()
+    course = create_course()
+    button_handler.context_service.get_context.return_value = {
+        "action": "admin_course_details",
+        "step": "view",
+        "data": {"course_id": str(course.id), "page": 2},
+    }
+
+    response = await button_handler.handle(TelegramButtons.COURSE_SEND_MESSAGE, 1)
+
+    button_handler.context_service.set_context.assert_awaited_once_with(
+        1,
+        action="course_broadcast_message",
+        step="awaiting_message_text",
+        data={"course_id": str(course.id), "page": 2},
+    )
+    assert response.message == TelegramMessages.get_course_broadcast_request_text()
+    assert response.awaiting_input is True
 
 
 @pytest.mark.asyncio
@@ -766,6 +825,7 @@ async def test_text_handler_converts_lection_datetime_input_from_moscow_to_utc()
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=update_lection_use_case,
         manage_questions_use_case=AsyncMock(),
         button_handler=button_handler,
@@ -830,6 +890,7 @@ async def test_text_handler_removes_prompt_screen_after_question_creation():
         student_service=button_handler.student_service,
         create_admin_use_case=AsyncMock(),
         attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
         update_lection_use_case=AsyncMock(),
         manage_questions_use_case=manage_questions_use_case,
         button_handler=button_handler,
@@ -840,6 +901,48 @@ async def test_text_handler_removes_prompt_screen_after_question_creation():
     context_service.pop_navigation.assert_called_once_with(1)
     manage_questions_use_case.create_question.assert_called_once()
     button_handler.render_questions_menu.assert_called_once_with(1, lection_id)
+
+
+@pytest.mark.asyncio
+async def test_text_handler_sends_course_broadcast_and_returns_to_course_details():
+    button_handler = build_button_handler()
+    course = create_course()
+    context_service = AsyncMock()
+    context_service.get_context.return_value = {
+        "action": "course_broadcast_message",
+        "step": "awaiting_message_text",
+        "data": {"course_id": str(course.id), "page": 3},
+    }
+    send_course_broadcast_message_use_case = AsyncMock(return_value=5)
+    expected = ActionResponseSchema(message="done")
+    button_handler.render_admin_course_details = AsyncMock(return_value=expected)
+    text_handler = TextInputHandler(
+        context_service=context_service,
+        admin_service=button_handler.admin_service,
+        teacher_service=button_handler.teacher_service,
+        student_service=button_handler.student_service,
+        create_admin_use_case=AsyncMock(),
+        attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=send_course_broadcast_message_use_case,
+        update_lection_use_case=AsyncMock(),
+        manage_questions_use_case=AsyncMock(),
+        button_handler=button_handler,
+    )
+
+    response = await text_handler.handle("Тестовое сообщение", 1)
+
+    send_course_broadcast_message_use_case.assert_awaited_once_with(
+        course_id=course.id,
+        message_text="Тестовое сообщение",
+        current_admin=ANY,
+    )
+    button_handler.render_admin_course_details.assert_awaited_once_with(
+        1,
+        course.id,
+        page=3,
+        message_prefix=TelegramMessages.get_course_broadcast_success(5),
+    )
+    assert response == expected
 
 
 @pytest.mark.asyncio
@@ -861,6 +964,7 @@ async def test_file_handler_removes_upload_prompt_after_presentation_upload():
     file_handler = FileUploadHandler(
         context_service=context_service,
         create_course_from_excel_use_case=AsyncMock(return_value=create_course()),
+        append_course_from_excel_use_case=AsyncMock(return_value=2),
         attach_students_to_course_use_case=AsyncMock(return_value=2),
         manage_files_use_case=manage_files_use_case,
         reflection_workflow_service=AsyncMock(),
@@ -893,6 +997,7 @@ async def test_file_handler_returns_friendly_message_for_missing_csv_column():
     file_handler = FileUploadHandler(
         context_service=context_service,
         create_course_from_excel_use_case=AsyncMock(),
+        append_course_from_excel_use_case=AsyncMock(),
         attach_students_to_course_use_case=AsyncMock(
             side_effect=CSVFileMissingColumnError("username")
         ),
@@ -913,7 +1018,10 @@ async def test_file_handler_returns_friendly_message_for_missing_csv_column():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("action_name", ["create_course", "attach_students", "edit_lection_presentation", "edit_lection_recording"])
+@pytest.mark.parametrize(
+    "action_name",
+    ["create_course", "append_course_lections", "attach_students", "edit_lection_presentation", "edit_lection_recording"],
+)
 async def test_file_handler_routes_by_context_action(action_name: str):
     context_service = AsyncMock()
     context_service.get_context.return_value = {
@@ -928,14 +1036,17 @@ async def test_file_handler_routes_by_context_action(action_name: str):
     button_handler._require_admin = AsyncMock(return_value=create_admin())
     button_handler.build_main_menu_response = AsyncMock(return_value=Mock())
     button_handler.render_course_menu = AsyncMock(return_value=Mock())
+    button_handler.render_admin_course_details = AsyncMock(return_value=Mock())
     button_handler.render_presentation_menu = AsyncMock(return_value=Mock())
     button_handler.render_recording_menu = AsyncMock(return_value=Mock())
     create_course_use_case = AsyncMock(return_value=create_course())
+    append_course_use_case = AsyncMock(return_value=3)
     attach_students_use_case = AsyncMock(return_value=2)
     manage_files_use_case = AsyncMock()
     file_handler = FileUploadHandler(
         context_service=context_service,
         create_course_from_excel_use_case=create_course_use_case,
+        append_course_from_excel_use_case=append_course_use_case,
         attach_students_to_course_use_case=attach_students_use_case,
         manage_files_use_case=manage_files_use_case,
         reflection_workflow_service=AsyncMock(),
@@ -955,6 +1066,13 @@ async def test_file_handler_routes_by_context_action(action_name: str):
             ANY,
             button_handler._require_admin.return_value,
         )
+    elif action_name == "append_course_lections":
+        append_course_use_case.assert_called_once_with(
+            course_id=uuid.UUID(context_service.get_context.return_value["data"]["course_id"]),
+            excel_file=ANY,
+            current_admin=button_handler._require_admin.return_value,
+        )
+        button_handler.render_admin_course_details.assert_called_once()
     elif action_name == "attach_students":
         attach_students_use_case.assert_called_once()
     elif action_name == "edit_lection_presentation":
@@ -1151,6 +1269,7 @@ async def test_file_handler_saves_student_video_to_draft_and_returns_review_acti
     file_handler = FileUploadHandler(
         context_service=context_service,
         create_course_from_excel_use_case=AsyncMock(),
+        append_course_from_excel_use_case=AsyncMock(),
         attach_students_to_course_use_case=AsyncMock(),
         manage_files_use_case=AsyncMock(),
         reflection_workflow_service=reflection_workflow_service,
@@ -1249,39 +1368,35 @@ async def test_button_handler_submits_student_reflection_and_prompts_question_ch
             "qa_answers": [],
         },
     }
-    handler.reflection_workflow_service.submit_reflection.return_value = {
+    updated_context = {
         **handler.context_service.get_context.return_value["data"],
         "stage": "question",
         "reflection_id": str(uuid.uuid4()),
-        "one_question_from_list": True,
         "questions": [
             {"id": str(first_question_id), "text": "Что было полезно?"},
             {"id": str(second_question_id), "text": "Что осталось непонятным?"},
         ],
     }
-    handler.reflection_workflow_service.should_select_single_question = Mock(return_value=True)
+    handler.reflection_workflow_service.submit_reflection.return_value = updated_context
+    handler.reflection_workflow_service.should_select_single_question = Mock(return_value=False)
+    handler.reflection_workflow_service.get_current_question = Mock(
+        return_value={"id": str(first_question_id), "text": "Что было полезно?"}
+    )
 
     response = await handler.handle(TelegramButtons.STUDENT_SUBMIT_REFLECTION, student.telegram_id)
 
     handler.context_service.set_context.assert_awaited_once_with(
         student.telegram_id,
         action="student_reflection_workflow",
-        step="question_select",
-        data=handler.reflection_workflow_service.submit_reflection.return_value,
+        step="question_prompt",
+        data=updated_context,
     )
-    assert response.message == TelegramMessages.get_question_selection_prompt(
-        handler.reflection_workflow_service.submit_reflection.return_value["questions"]
+    assert response.message == TelegramMessages.get_question_reflection_prompt(
+        "Что было полезно?",
+        1,
+        2,
     )
-    assert [button.text for button in response.buttons] == [
-        "Вопрос 1",
-        "Вопрос 2",
-    ]
-    assert response.buttons[0].action == (
-        f"{TelegramButtons.STUDENT_SELECT_QUESTION}:{first_question_id}"
-    )
-    assert response.buttons[1].action == (
-        f"{TelegramButtons.STUDENT_SELECT_QUESTION}:{second_question_id}"
-    )
+    assert response.awaiting_input is True
 
 
 @pytest.mark.asyncio

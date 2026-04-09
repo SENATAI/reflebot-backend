@@ -198,6 +198,10 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                     page=page,
                     push_navigation=True,
                 )
+            if base_action == TelegramButtons.COURSE_APPEND_LECTIONS:
+                return await self._start_append_course_lections(telegram_id, roles, context_data)
+            if base_action == TelegramButtons.COURSE_SEND_MESSAGE:
+                return await self._start_course_broadcast_message(telegram_id, roles, context_data)
             if base_action == TelegramButtons.COURSE_VIEW_PARSED_LECTIONS:
                 return await self.render_parsed_lections(
                     telegram_id,
@@ -608,6 +612,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         course_id: uuid.UUID,
         page: int,
         push_navigation: bool = False,
+        message_prefix: str = "",
     ) -> ActionResponseSchema:
         """Показать карточку курса для администратора."""
         if push_navigation:
@@ -622,13 +627,13 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
             data={"course_id": str(course_id), "page": page},
         )
         return ActionResponseSchema(
-            message=TelegramMessages.get_admin_course_info(
+            message=message_prefix + TelegramMessages.get_admin_course_info(
                 course.name,
                 course.join_code,
             ),
             buttons=[
                 TelegramButtonSchema(text=button.text, action=button.action)
-                for button in TelegramButtons.get_back_button()
+                for button in TelegramButtons.get_admin_course_details_buttons()
             ],
         )
 
@@ -1324,6 +1329,50 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         )
         return ActionResponseSchema(
             message=TelegramMessages.get_create_course_request_name(),
+            awaiting_input=True,
+        )
+
+    async def _start_append_course_lections(
+        self,
+        telegram_id: int,
+        roles: ResolvedRoles,
+        context_data: dict,
+    ) -> ActionResponseSchema:
+        """Запустить сценарий догрузки лекций в существующий курс."""
+        self._require_roles_admin(roles)
+        await self.context_service.set_context(
+            telegram_id,
+            action="append_course_lections",
+            step="awaiting_course_file",
+            data={
+                "course_id": str(context_data["course_id"]),
+                "page": int(context_data.get("page", 1)),
+            },
+        )
+        return ActionResponseSchema(
+            message=TelegramMessages.get_append_course_request_file(),
+            awaiting_input=True,
+        )
+
+    async def _start_course_broadcast_message(
+        self,
+        telegram_id: int,
+        roles: ResolvedRoles,
+        context_data: dict,
+    ) -> ActionResponseSchema:
+        """Запустить сценарий ввода текста сообщения для студентов курса."""
+        self._require_roles_admin(roles)
+        await self.context_service.set_context(
+            telegram_id,
+            action="course_broadcast_message",
+            step="awaiting_message_text",
+            data={
+                "course_id": str(context_data["course_id"]),
+                "page": int(context_data.get("page", 1)),
+            },
+        )
+        return ActionResponseSchema(
+            message=TelegramMessages.get_course_broadcast_request_text(),
             awaiting_input=True,
         )
 

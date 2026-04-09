@@ -20,6 +20,7 @@ from reflebot.apps.reflections.use_cases.course import (
     AttachStudentsToCourseUseCase,
     AttachTeachersToCourseUseCase,
     CreateCourseFromExcelUseCase,
+    SendCourseBroadcastMessageUseCase,
 )
 
 
@@ -91,6 +92,19 @@ def create_student(name: str) -> StudentReadSchema:
     )
 
 
+def create_student_with_telegram(name: str, telegram_id: int | None) -> StudentReadSchema:
+    now = datetime.now(timezone.utc)
+    return StudentReadSchema(
+        id=uuid.uuid4(),
+        full_name=name,
+        telegram_username=name.lower(),
+        telegram_id=telegram_id,
+        is_active=True,
+        created_at=now,
+        updated_at=now,
+    )
+
+
 @pytest.mark.asyncio
 async def test_create_course_from_excel_use_case_parses_and_creates_course():
     deadline = datetime.now(timezone.utc)
@@ -102,7 +116,7 @@ async def test_create_course_from_excel_use_case_parses_and_creates_course():
             "ended_at": datetime.now(),
             "deadline": deadline,
             "join_code": "AbCd",
-            "one_question_from_list": True,
+            "questions_to_ask_count": 1,
             "questions": ["Что это такое?"],
         }
     ]
@@ -143,7 +157,7 @@ async def test_create_course_from_excel_use_case_parses_and_creates_course():
                 "started_at": parser.parse.return_value[0]["started_at"],
                 "ended_at": parser.parse.return_value[0]["ended_at"],
                 "deadline": deadline,
-                "one_question_from_list": True,
+                "questions_to_ask_count": 1,
             }
         ],
         join_code="AbCd",
@@ -226,3 +240,35 @@ async def test_attach_students_to_course_use_case_parses_csv_and_attaches_studen
     student_service.bulk_create_or_get.assert_called_once_with(parser.parse.return_value)
     student_service.attach_to_course.assert_called_once()
     student_service.attach_to_lections.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_send_course_broadcast_message_use_case_publishes_only_students_with_telegram():
+    student_service = AsyncMock()
+    publisher = AsyncMock()
+    course_id = uuid.uuid4()
+    students = [
+        create_student_with_telegram("Alice", 111),
+        create_student_with_telegram("Bob", None),
+        create_student_with_telegram("Charlie", 333),
+    ]
+    student_service.get_students_by_course.return_value = {"items": students}
+    use_case = SendCourseBroadcastMessageUseCase(
+        student_service=student_service,
+        publisher=publisher,
+    )
+
+    result = await use_case(
+        course_id=course_id,
+        message_text="Hello students",
+        current_admin=create_admin(),
+    )
+
+    assert result == 2
+    assert publisher.publish_course_message.await_count == 2
+    first_payload = publisher.publish_course_message.await_args_list[0].args[0]
+    second_payload = publisher.publish_course_message.await_args_list[1].args[0]
+    assert first_payload.course_id == course_id
+    assert first_payload.telegram_id == 111
+    assert first_payload.message_text == "Hello students"
+    assert second_payload.telegram_id == 333

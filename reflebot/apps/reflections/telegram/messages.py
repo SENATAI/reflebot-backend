@@ -120,6 +120,16 @@ class TelegramMessages:
         return "📚 Загрузите Excel файл с лекциями:"
 
     @staticmethod
+    def get_append_course_request_file() -> str:
+        """Запрос файла для догрузки новых лекций в курс."""
+        return "📥 Загрузите Excel файл с новыми лекциями для этого курса:"
+
+    @staticmethod
+    def get_course_broadcast_request_text() -> str:
+        """Запрос текста сообщения для студентов курса."""
+        return "✉️ Введите текст сообщения, которое нужно отправить всем студентам курса:"
+
+    @staticmethod
     def get_create_course_request_name() -> str:
         """Запрос названия курса."""
         return "📚 Введите название курса:"
@@ -140,6 +150,23 @@ class TelegramMessages:
     def get_unknown_context_action() -> str:
         """Сообщение о неизвестном действии в контексте."""
         return "⚠️ Неизвестное действие. Попробуйте снова."
+
+    @staticmethod
+    def get_course_appended_success(lections_count: int) -> str:
+        """Сообщение об успешной догрузке курса."""
+        return (
+            f"✅ Курс успешно догружен.\n"
+            f"Добавлено лекций: {lections_count}\n"
+            "Новые лекции уже привязаны к записанным студентам.\n\n"
+        )
+
+    @staticmethod
+    def get_course_broadcast_success(sent_count: int) -> str:
+        """Сообщение об успешной отправке сообщения студентам курса."""
+        return (
+            f"✅ Сообщение поставлено в отправку.\n"
+            f"Получателей: {sent_count}\n\n"
+        )
     
     # Сообщения для управления курсом
     

@@ -10,7 +10,11 @@ from dataclasses import dataclass
 from typing import Awaitable, Callable, Protocol
 
 from reflebot.settings import RabbitMQ
-from ..schemas import ReflectionPromptCommandSchema, ReflectionPromptDeadlineUpdateCommandSchema
+from ..schemas import (
+    CourseBroadcastCommandSchema,
+    ReflectionPromptCommandSchema,
+    ReflectionPromptDeadlineUpdateCommandSchema,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,10 @@ class NotificationCommandPublisherProtocol(Protocol):
         payload: ReflectionPromptDeadlineUpdateCommandSchema,
     ) -> None:
         """Опубликовать команду update_reflection_prompt."""
+        ...
+
+    async def publish_course_message(self, payload: CourseBroadcastCommandSchema) -> None:
+        """Опубликовать команду send_course_message."""
         ...
 
 
@@ -108,9 +116,25 @@ class NotificationCommandPublisher(NotificationCommandPublisherProtocol):
             },
         )
 
+    async def publish_course_message(self, payload: CourseBroadcastCommandSchema) -> None:
+        """Опубликовать команду send_course_message в очередь бота."""
+        await self._publish_command(
+            payload=payload,
+            log_action="course message",
+            extra={
+                "course_id": str(payload.course_id),
+                "student_id": str(payload.student_id),
+                "telegram_id": payload.telegram_id,
+            },
+        )
+
     async def _publish_command(
         self,
-        payload: ReflectionPromptCommandSchema | ReflectionPromptDeadlineUpdateCommandSchema,
+        payload: (
+            ReflectionPromptCommandSchema
+            | ReflectionPromptDeadlineUpdateCommandSchema
+            | CourseBroadcastCommandSchema
+        ),
         log_action: str,
         extra: dict[str, object],
     ) -> None:

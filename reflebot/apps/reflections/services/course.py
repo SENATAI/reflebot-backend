@@ -16,7 +16,9 @@ from ..repositories.teacher_course import TeacherCourseRepositoryProtocol
 from ..schemas import (
     CourseSessionCreateSchema,
     CourseSessionReadSchema,
+    CourseSessionUpdateSchema,
     LectionSessionCreateSchema,
+    LectionSessionReadSchema,
     PaginatedResponse,
 )
 from ..models import CourseSession, TeacherCourse
@@ -38,6 +40,14 @@ class CourseServiceProtocol(Protocol):
     
     async def delete_course(self, course_id: uuid.UUID) -> None:
         """Удалить курс (CASCADE DELETE обрабатывается БД)."""
+        ...
+
+    async def append_lections_to_course(
+        self,
+        course_id: uuid.UUID,
+        lections_data: list[dict],
+    ) -> list[LectionSessionReadSchema]:
+        """Добавить новые лекции в существующий курс."""
         ...
 
     async def get_by_id(self, course_id: uuid.UUID) -> CourseSessionReadSchema:
@@ -137,6 +147,7 @@ class CourseService(CourseServiceProtocol):
                     settings.default_deadline,
                 ),
                 one_question_from_list=lection_data.get("one_question_from_list", False),
+                questions_to_ask_count=lection_data.get("questions_to_ask_count"),
             )
             for lection_data in lections_data
         ]
@@ -157,6 +168,50 @@ class CourseService(CourseServiceProtocol):
             course_id: ID курса для удаления
         """
         await self.course_repository.delete(course_id)
+
+    async def append_lections_to_course(
+        self,
+        course_id: uuid.UUID,
+        lections_data: list[dict],
+    ) -> list[LectionSessionReadSchema]:
+        """Добавить новые лекции в курс и обновить границы курса при необходимости."""
+        if not lections_data:
+            return []
+
+        course = await self.course_repository.get(course_id)
+        all_dates = [lection["started_at"] for lection in lections_data] + [
+            lection["ended_at"] for lection in lections_data
+        ]
+        new_started_at = min([course.started_at, *all_dates])
+        new_ended_at = max([course.ended_at, *all_dates])
+        if new_started_at != course.started_at or new_ended_at != course.ended_at:
+            await self.course_repository.update(
+                CourseSessionUpdateSchema(
+                    id=course.id,
+                    name=course.name,
+                    join_code=course.join_code,
+                    started_at=new_started_at,
+                    ended_at=new_ended_at,
+                )
+            )
+
+        lection_schemas = [
+            LectionSessionCreateSchema(
+                course_session_id=course_id,
+                topic=lection_data["topic"],
+                started_at=lection_data["started_at"],
+                ended_at=lection_data["ended_at"],
+                deadline=lection_data.get("deadline")
+                or calculate_lection_deadline(
+                    lection_data["ended_at"],
+                    settings.default_deadline,
+                ),
+                one_question_from_list=lection_data.get("one_question_from_list", False),
+                questions_to_ask_count=lection_data.get("questions_to_ask_count"),
+            )
+            for lection_data in lections_data
+        ]
+        return await self.lection_repository.bulk_create(lection_schemas)
 
     async def get_by_id(self, course_id: uuid.UUID) -> CourseSessionReadSchema:
         """Получить курс по идентификатору."""

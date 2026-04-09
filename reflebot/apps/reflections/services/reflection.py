@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import random
 from typing import Any, Protocol
 import uuid
 
@@ -122,11 +123,20 @@ class ReflectionWorkflowService(ReflectionWorkflowServiceProtocol):
             if existing_reflection is not None
             else await self.repository.get_questions_for_lection(lection_session_id)
         )
+        selected_questions = self._select_questions_for_student(
+            questions,
+            lection.questions_to_ask_count,
+        )
         return {
             "lection_id": str(lection.id),
             "lection_topic": lection.topic,
             "lection_deadline": lection.deadline.isoformat(),
-            "one_question_from_list": bool(lection.one_question_from_list),
+            "one_question_from_list": False,
+            "questions_to_ask_count": (
+                lection.questions_to_ask_count
+                if lection.questions_to_ask_count is not None
+                else len(selected_questions)
+            ),
             "stage": "reflection",
             "reflection_id": (
                 str(existing_reflection.id)
@@ -136,7 +146,7 @@ class ReflectionWorkflowService(ReflectionWorkflowServiceProtocol):
             "reflection_videos": [],
             "questions": [
                 {"id": str(question.id), "text": question.question_text}
-                for question in questions
+                for question in selected_questions
             ],
             "current_question_index": 0,
             "current_question_videos": [],
@@ -336,6 +346,18 @@ class ReflectionWorkflowService(ReflectionWorkflowServiceProtocol):
             "current_question_videos": list(context_data.get("current_question_videos", [])),
             "qa_answers": [dict(answer) for answer in context_data.get("qa_answers", [])],
         }
+
+    @staticmethod
+    def _select_questions_for_student(
+        questions: list[Any],
+        questions_to_ask_count: int | None,
+    ) -> list[Any]:
+        """Выбрать уникальный набор вопросов для конкретного студента."""
+        if not questions:
+            return []
+        if questions_to_ask_count is None or questions_to_ask_count >= len(questions):
+            return list(questions)
+        return list(random.sample(list(questions), k=questions_to_ask_count))
 
     @staticmethod
     def _parse_datetime(value: str | datetime) -> datetime:
