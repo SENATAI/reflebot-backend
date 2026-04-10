@@ -1678,7 +1678,17 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
             return await self.render_analytics_student_list(telegram_id, uuid.UUID(str(data["course_id"])), page)
         if action == "analytics_lection_statistics":
             return await self.render_analytics_lection_statistics(telegram_id, uuid.UUID(str(data["lection_id"])), page)
-        return ActionResponseSchema(message=TelegramMessages.get_unknown_context_action())
+        support_button = TelegramButtons.create_support_button()
+        return ActionResponseSchema(
+            message=TelegramMessages.get_unknown_context_action(),
+            buttons=[
+                TelegramButtonSchema(
+                    text=support_button.text,
+                    action=support_button.action,
+                    url=support_button.url,
+                )
+            ],
+        )
 
     async def _render_reflection_details_from_context(
         self,

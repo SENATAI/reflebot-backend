@@ -139,7 +139,7 @@ class TelegramMessages:
     @staticmethod
     def get_no_active_action() -> str:
         """Сообщение об отсутствии активного действия."""
-        return "⚠️ Нет активного действия. Выберите действие из меню."
+        return "⚠️ Не выбрана никакая команда. Попробуйте воспользоваться кнопками под сообщением выше или напишите в тех. поддержку."
     
     @staticmethod
     def get_unknown_action(action: str) -> str:
@@ -149,7 +149,7 @@ class TelegramMessages:
     @staticmethod
     def get_unknown_context_action() -> str:
         """Сообщение о неизвестном действии в контексте."""
-        return "⚠️ Неизвестное действие. Попробуйте снова."
+        return "⚠️ Неизвестное действие. Попробуйте воспользоваться кнопками под сообщением выше или напишите в тех. поддержку."
 
     @staticmethod
     def get_course_appended_success(lections_count: int) -> str:
@@ -360,7 +360,7 @@ class TelegramMessages:
     @staticmethod
     def get_reflection_video_saved() -> str:
         """Сообщение после успешной записи кружка."""
-        return "Кружок/видео записан, что хотите сделать дальше?"
+        return "💾 Кружок/видео сохранён!\n\n👇 Используя кнопки под сообщением, выберите, что хотите сделать дальше:"
 
     @staticmethod
     def get_reflection_video_deleted() -> str:
@@ -413,7 +413,7 @@ class TelegramMessages:
             f"📝 Лекция: <b>{lection_topic}</b>\n"
             f"⏰ Дедлайн: {TelegramMessages._format_datetime(deadline)}\n\n"
             f"🎥 Записано кружков/видео: {recorded_videos_count}\n\n"
-            "Если хотите, можете дозаписать ещё один кружок/видео до дедлайна."
+            "👇 Нажмите кнопку ниже, если хотите дозаписать ещё один кружок/видео до дедлайна."
         )
 
     @staticmethod
@@ -475,7 +475,7 @@ class TelegramMessages:
     @staticmethod
     def get_join_course_permission_denied() -> str:
         """Сообщение, если join_course вызван не студентом."""
-        return "Команда join_course доступна только уже зарегистрированному студенту."
+        return "Команда join_course доступна только уже зарегистрированному студенту. Нажмите команду /start"
     
     @staticmethod
     def get_upload_presentation_request() -> str:

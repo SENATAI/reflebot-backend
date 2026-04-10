@@ -13,6 +13,7 @@ from ..schemas import ActionResponseSchema
 from ..services.context import ContextServiceProtocol
 from ..services.reflection import ReflectionWorkflowServiceProtocol
 from ..services.student_history_log import StudentHistoryLogServiceProtocol
+from ..telegram.buttons import TelegramButtons
 from ..telegram.messages import TelegramMessages
 from ..use_cases.course import (
     AppendCourseFromExcelUseCaseProtocol,
@@ -204,7 +205,17 @@ class FileUploadHandler(FileUploadHandlerProtocol):
                 awaiting_input=True,
             )
 
-        return ActionResponseSchema(message=TelegramMessages.get_unknown_context_action())
+        support_button = TelegramButtons.create_support_button()
+        return ActionResponseSchema(
+            message=TelegramMessages.get_unknown_context_action(),
+            buttons=[
+                {
+                    "text": support_button.text,
+                    "action": support_button.action,
+                    "url": support_button.url,
+                }
+            ],
+        )
 
     @staticmethod
     def _parse_uuid(raw: str) -> uuid.UUID:

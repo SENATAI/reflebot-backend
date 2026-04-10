@@ -462,7 +462,17 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                     uuid.UUID(str(data["lection_id"])),
                 )
 
-            return ActionResponseSchema(message=TelegramMessages.get_unknown_context_action())
+            support_button = TelegramButtons.create_support_button()
+            return ActionResponseSchema(
+                message=TelegramMessages.get_unknown_context_action(),
+                buttons=[
+                    {
+                        "text": support_button.text,
+                        "action": support_button.action,
+                        "url": support_button.url,
+                    }
+                ],
+            )
         except Exception as exc:
             return await self.build_error_response(telegram_id, exc, awaiting_input=True)
 
