@@ -667,6 +667,7 @@ async def test_render_admin_course_details_shows_course_code_and_back_button():
     assert course.join_code in response.message
     assert [button.action for button in response.buttons] == [
         TelegramButtons.COURSE_APPEND_LECTIONS,
+        TelegramButtons.COURSE_SEND_ALERT,
         TelegramButtons.COURSE_SEND_MESSAGE,
         TelegramButtons.BACK,
     ]
@@ -714,6 +715,67 @@ async def test_button_handler_starts_course_broadcast_flow():
     )
     assert response.message == TelegramMessages.get_course_broadcast_request_text()
     assert response.awaiting_input is True
+
+
+@pytest.mark.asyncio
+async def test_button_handler_opens_course_alert_lection_list():
+    button_handler = build_button_handler()
+    course = create_course()
+    lection = create_lection(topic="Lecture 1")
+    lection.course_session_id = course.id
+    button_handler.context_service.get_context.return_value = {
+        "action": "admin_course_details",
+        "step": "view",
+        "data": {"course_id": str(course.id), "page": 2},
+    }
+    button_handler.lection_service.get_lections_by_course.return_value = Mock(
+        items=[lection],
+        total_pages=1,
+    )
+
+    response = await button_handler.handle(TelegramButtons.COURSE_SEND_ALERT, 1)
+
+    assert response.message == TelegramMessages.get_course_alert_select_lection()
+    assert response.buttons[0].action == f"{TelegramButtons.COURSE_ALERT_LECTION}:{lection.id}"
+
+
+@pytest.mark.asyncio
+async def test_button_handler_sends_course_alert_and_rerenders_students():
+    button_handler = build_button_handler()
+    course = create_course()
+    lection = create_lection(topic="Lecture 1")
+    lection.course_session_id = course.id
+    student = create_student()
+    button_handler.send_course_reflection_alert_use_case = AsyncMock()
+    button_handler.context_service.get_context.return_value = {
+        "action": "course_alert_students",
+        "step": "view",
+        "data": {
+            "course_id": str(course.id),
+            "lection_id": str(lection.id),
+            "page": 1,
+        },
+    }
+    button_handler.student_service.get_by_id.return_value = student
+    button_handler.lection_service.get_by_id.return_value = lection
+    button_handler.student_service.get_students_by_course.return_value = {
+        "items": [student],
+        "total_pages": 1,
+    }
+
+    response = await button_handler.handle(
+        f"{TelegramButtons.COURSE_ALERT_STUDENT}:{student.id}",
+        1,
+    )
+
+    button_handler.send_course_reflection_alert_use_case.assert_awaited_once_with(
+        course_id=course.id,
+        lection_id=lection.id,
+        student_id=student.id,
+        current_admin=ANY,
+    )
+    assert TelegramMessages.get_course_alert_sent(student.full_name, lection.topic) in response.message
+    assert response.buttons[0].action == f"{TelegramButtons.COURSE_ALERT_STUDENT}:{student.id}"
 
 
 @pytest.mark.asyncio

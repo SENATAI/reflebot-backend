@@ -12,6 +12,7 @@ from reflebot.apps.reflections.schemas import AdminLoginSchema, AdminReadSchema,
 from reflebot.apps.reflections.models import Admin
 from reflebot.apps.reflections.services.auth import AuthService
 from reflebot.apps.reflections.telegram.buttons import TelegramButtons
+from reflebot.apps.reflections.telegram.messages import TelegramMessages
 from reflebot.core.utils.exceptions import ModelFieldNotFoundException
 
 
@@ -240,7 +241,7 @@ async def test_auth_service_unknown_username_requests_course_code():
 
     response = await service.login_user("new_student", AdminLoginSchema(telegram_id=99))
 
-    assert response.message == "Привет, студент, введи код курса."
+    assert response.message == TelegramMessages.get_student_course_code_request()
     assert response.buttons == []
     assert response.awaiting_input is True
     context_service.set_context.assert_awaited_once_with(

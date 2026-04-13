@@ -86,6 +86,8 @@ from .use_cases.admin import (
 from .use_cases.course import (
     AppendCourseFromExcelUseCase,
     AppendCourseFromExcelUseCaseProtocol,
+    SendCourseReflectionAlertUseCase,
+    SendCourseReflectionAlertUseCaseProtocol,
     SendCourseBroadcastMessageUseCase,
     SendCourseBroadcastMessageUseCaseProtocol,
     AttachStudentsToCourseUseCase,
@@ -532,6 +534,23 @@ def get_send_course_broadcast_message_use_case(
     )
 
 
+def get_send_course_reflection_alert_use_case(
+    lection_service: LectionServiceProtocol = Depends(get_lection_service),
+    student_service: StudentServiceProtocol = Depends(get_student_service),
+    message_service: ReflectionPromptMessageServiceProtocol = Depends(
+        get_reflection_prompt_message_service
+    ),
+    publisher: NotificationCommandPublisherProtocol = Depends(get_notification_command_publisher),
+) -> SendCourseReflectionAlertUseCaseProtocol:
+    """Получить use case повторной отправки alert студенту по лекции."""
+    return SendCourseReflectionAlertUseCase(
+        lection_service=lection_service,
+        student_service=student_service,
+        message_service=message_service,
+        publisher=publisher,
+    )
+
+
 def get_attach_teachers_to_course_use_case(
     teacher_service: TeacherServiceProtocol = Depends(get_teacher_service),
     lection_service: LectionServiceProtocol = Depends(get_lection_service),
@@ -732,6 +751,9 @@ def get_button_action_handler(
     view_lection_analytics_use_case: ViewLectionAnalyticsUseCaseProtocol = Depends(get_view_lection_analytics_use_case),
     view_student_analytics_use_case: ViewStudentAnalyticsUseCaseProtocol = Depends(get_view_student_analytics_use_case),
     view_reflection_details_use_case: ViewReflectionDetailsUseCaseProtocol = Depends(get_view_reflection_details_use_case),
+    send_course_reflection_alert_use_case: SendCourseReflectionAlertUseCaseProtocol = Depends(
+        get_send_course_reflection_alert_use_case
+    ),
 ) -> ButtonActionHandlerProtocol:
     """Получить handler кнопок."""
     return ButtonActionHandler(
@@ -752,6 +774,7 @@ def get_button_action_handler(
         view_lection_analytics_use_case=view_lection_analytics_use_case,
         view_student_analytics_use_case=view_student_analytics_use_case,
         view_reflection_details_use_case=view_reflection_details_use_case,
+        send_course_reflection_alert_use_case=send_course_reflection_alert_use_case,
     )
 
 
@@ -838,6 +861,10 @@ AppendCourseFromExcelUseCaseDep = Annotated[
 SendCourseBroadcastMessageUseCaseDep = Annotated[
     SendCourseBroadcastMessageUseCaseProtocol,
     Depends(get_send_course_broadcast_message_use_case),
+]
+SendCourseReflectionAlertUseCaseDep = Annotated[
+    SendCourseReflectionAlertUseCaseProtocol,
+    Depends(get_send_course_reflection_alert_use_case),
 ]
 LectionServiceDep = Annotated[LectionServiceProtocol, Depends(get_lection_service)]
 QuestionServiceDep = Annotated[QuestionServiceProtocol, Depends(get_question_service)]

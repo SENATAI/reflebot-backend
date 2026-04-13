@@ -5,6 +5,7 @@ Use cases для работы с курсами.
 import uuid
 from typing import Protocol, BinaryIO
 
+from reflebot.core.utils.exceptions import ValidationError
 from reflebot.core.use_cases import UseCaseProtocol
 from ..services.course import CourseServiceProtocol
 from ..services.teacher import TeacherServiceProtocol
@@ -12,6 +13,7 @@ from ..services.student import StudentServiceProtocol
 from ..services.notification_publisher import NotificationCommandPublisherProtocol
 from ..services.lection import LectionServiceProtocol
 from ..services.question import QuestionServiceProtocol
+from ..services.reflection_prompt_message import ReflectionPromptMessageServiceProtocol
 from ..schemas import (
     CourseSessionReadSchema,
     AdminReadSchema,
@@ -53,7 +55,20 @@ class SendCourseBroadcastMessageUseCaseProtocol(UseCaseProtocol[int]):
         course_id: uuid.UUID,
         message_text: str,
         current_admin: AdminReadSchema,
-    ) -> int:
+        ) -> int:
+        ...
+
+
+class SendCourseReflectionAlertUseCaseProtocol(UseCaseProtocol[None]):
+    """Протокол use case повторной отправки alert по лекции конкретному студенту."""
+
+    async def __call__(
+        self,
+        course_id: uuid.UUID,
+        lection_id: uuid.UUID,
+        student_id: uuid.UUID,
+        current_admin: AdminReadSchema,
+    ) -> None:
         ...
 
 
@@ -237,6 +252,57 @@ class SendCourseBroadcastMessageUseCase(SendCourseBroadcastMessageUseCaseProtoco
             )
             sent_count += 1
         return sent_count
+
+
+class SendCourseReflectionAlertUseCase(SendCourseReflectionAlertUseCaseProtocol):
+    """Use case повторной отправки студенту alert по конкретной лекции."""
+
+    def __init__(
+        self,
+        lection_service: LectionServiceProtocol,
+        student_service: StudentServiceProtocol,
+        message_service: ReflectionPromptMessageServiceProtocol,
+        publisher: NotificationCommandPublisherProtocol,
+    ):
+        self.lection_service = lection_service
+        self.student_service = student_service
+        self.message_service = message_service
+        self.publisher = publisher
+
+    async def __call__(
+        self,
+        course_id: uuid.UUID,
+        lection_id: uuid.UUID,
+        student_id: uuid.UUID,
+        current_admin: AdminReadSchema,
+    ) -> None:
+        """Повторно отправить alert студенту по лекции через bot queue."""
+        del current_admin
+        lection = await self.lection_service.get_by_id(lection_id)
+        if lection.course_session_id != course_id:
+            raise ValidationError("course_id", "Лекция не относится к выбранному курсу.")
+
+        student = await self.student_service.get_by_id(student_id)
+        if student.telegram_id is None:
+            raise ValidationError(
+                "telegram_id",
+                "У студента ещё не указан telegram_id, поэтому отправить алерт нельзя.",
+            )
+
+        message = await self.message_service.build_message(
+            lection_session_id=lection_id,
+            student_id=student_id,
+        )
+        await self.publisher.publish_course_message(
+            CourseBroadcastCommandSchema(
+                course_id=course_id,
+                student_id=student_id,
+                telegram_id=student.telegram_id,
+                message_text=message.message_text,
+                parse_mode=message.parse_mode,
+                buttons=message.buttons,
+            )
+        )
 
 
 class AttachTeachersToCourseUseCaseProtocol(UseCaseProtocol[TeacherReadSchema]):

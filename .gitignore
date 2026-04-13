@@ -11,6 +11,7 @@ wheels/
 
 # Environments
 .env
+scripts/.env
 
 # Alembic
 migrations/versions/*
@@ -24,3 +25,5 @@ celerybeat-*
 .vscode/*
 .codex
 skills-lock.json
+scripts/data/
+scripts/stats/
