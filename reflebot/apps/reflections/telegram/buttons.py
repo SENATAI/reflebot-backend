@@ -46,6 +46,9 @@ class TelegramButtons:
     COURSE_VIEW_PARSED_LECTIONS = "course_view_parsed_lections"
     COURSE_APPEND_LECTIONS = "course_append_lections"
     COURSE_SEND_MESSAGE = "course_send_message"
+    COURSE_SEND_ALERT = "course_send_alert"
+    COURSE_ALERT_LECTION = "course_alert_lection"
+    COURSE_ALERT_STUDENT = "course_alert_student"
     COURSE_ADD_DEFAULT_QUESTIONS = "course_add_default_questions"
     COURSE_ATTACH_TEACHERS = "course_attach_teachers"
     COURSE_ATTACH_STUDENTS = "course_attach_students"
@@ -241,6 +244,10 @@ class TelegramButtons:
             TelegramButton(
                 text="📥 Догрузить курс",
                 action=TelegramButtons.COURSE_APPEND_LECTIONS,
+            ),
+            TelegramButton(
+                text="🔔 Отправить алерт",
+                action=TelegramButtons.COURSE_SEND_ALERT,
             ),
             TelegramButton(
                 text="✉️ Отправить сообщение студентам",
@@ -460,6 +467,22 @@ class TelegramButtons:
         return TelegramButton(
             text=f"👨‍🎓 {student_name}",
             action=f"{TelegramButtons.ANALYTICS_FIND_STUDENT}:{student_id}"
+        )
+
+    @staticmethod
+    def create_course_alert_lection_button(lection_topic: str, lection_id: str) -> TelegramButton:
+        """Создать кнопку выбора лекции для повторной отправки алерта."""
+        return TelegramButton(
+            text=f"📝 {lection_topic}",
+            action=f"{TelegramButtons.COURSE_ALERT_LECTION}:{lection_id}",
+        )
+
+    @staticmethod
+    def create_course_alert_student_button(student_name: str, student_id: str) -> TelegramButton:
+        """Создать кнопку выбора студента для повторной отправки алерта."""
+        return TelegramButton(
+            text=f"👨‍🎓 {student_name}",
+            action=f"{TelegramButtons.COURSE_ALERT_STUDENT}:{student_id}",
         )
     
     @staticmethod

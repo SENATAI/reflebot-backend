@@ -130,6 +130,28 @@ class TelegramMessages:
         return "✉️ Введите текст сообщения, которое нужно отправить всем студентам курса:"
 
     @staticmethod
+    def get_course_alert_select_lection() -> str:
+        """Запрос выбора лекции для повторной отправки алерта."""
+        return "🔔 Выберите лекцию, по которой нужно повторно отправить алерт:"
+
+    @staticmethod
+    def get_course_alert_select_student(lection_topic: str) -> str:
+        """Запрос выбора студента для повторной отправки алерта."""
+        return (
+            "👨‍🎓 Выберите студента, которому нужно повторно отправить алерт.\n\n"
+            f"Лекция: <b>{lection_topic}</b>"
+        )
+
+    @staticmethod
+    def get_course_alert_sent(student_name: str, lection_topic: str) -> str:
+        """Сообщение об успешной повторной отправке алерта студенту."""
+        return (
+            f"✅ Алерт поставлен в отправку.\n"
+            f"Студент: <b>{student_name}</b>\n"
+            f"Лекция: <b>{lection_topic}</b>\n\n"
+        )
+
+    @staticmethod
     def get_create_course_request_name() -> str:
         """Запрос названия курса."""
         return "📚 Введите название курса:"

@@ -35,6 +35,7 @@ from ..use_cases.analytics import (
     ViewReflectionDetailsUseCaseProtocol,
     ViewStudentAnalyticsUseCaseProtocol,
 )
+from ..use_cases.course import SendCourseReflectionAlertUseCaseProtocol
 from ..use_cases.lection import ManageFilesUseCaseProtocol
 from .base import BaseHandler, ResolvedRoles
 
@@ -79,6 +80,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         view_lection_analytics_use_case: ViewLectionAnalyticsUseCaseProtocol,
         view_student_analytics_use_case: ViewStudentAnalyticsUseCaseProtocol,
         view_reflection_details_use_case: ViewReflectionDetailsUseCaseProtocol,
+        send_course_reflection_alert_use_case: SendCourseReflectionAlertUseCaseProtocol | None = None,
         student_history_log_service: StudentHistoryLogServiceProtocol | None = None,
         telegram_tracked_message_service: TelegramTrackedMessageServiceProtocol | None = None,
     ):
@@ -102,6 +104,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         self.view_lection_analytics_use_case = view_lection_analytics_use_case
         self.view_student_analytics_use_case = view_student_analytics_use_case
         self.view_reflection_details_use_case = view_reflection_details_use_case
+        self.send_course_reflection_alert_use_case = send_course_reflection_alert_use_case
 
     async def handle(self, action: str, telegram_id: int) -> ActionResponseSchema:
         """Обработать нажатие кнопки."""
@@ -200,6 +203,30 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                 )
             if base_action == TelegramButtons.COURSE_APPEND_LECTIONS:
                 return await self._start_append_course_lections(telegram_id, roles, context_data)
+            if base_action == TelegramButtons.COURSE_SEND_ALERT:
+                return await self.render_course_alert_lections(
+                    telegram_id,
+                    uuid.UUID(str(context_data["course_id"])),
+                    page=1,
+                    push_navigation=True,
+                )
+            if base_action == TelegramButtons.COURSE_ALERT_LECTION and parts:
+                lection_id = uuid.UUID(parts[0])
+                lection = await self.lection_service.get_by_id(lection_id)
+                return await self.render_course_alert_students(
+                    telegram_id,
+                    course_id=lection.course_session_id,
+                    lection_id=lection_id,
+                    page=1,
+                    push_navigation=True,
+                )
+            if base_action == TelegramButtons.COURSE_ALERT_STUDENT and parts:
+                return await self._send_course_reflection_alert(
+                    telegram_id,
+                    roles,
+                    context_data,
+                    uuid.UUID(parts[0]),
+                )
             if base_action == TelegramButtons.COURSE_SEND_MESSAGE:
                 return await self._start_course_broadcast_message(telegram_id, roles, context_data)
             if base_action == TelegramButtons.COURSE_VIEW_PARSED_LECTIONS:
@@ -635,6 +662,92 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                 TelegramButtonSchema(text=button.text, action=button.action)
                 for button in TelegramButtons.get_admin_course_details_buttons()
             ],
+        )
+
+    async def render_course_alert_lections(
+        self,
+        telegram_id: int,
+        course_id: uuid.UUID,
+        page: int,
+        push_navigation: bool = False,
+    ) -> ActionResponseSchema:
+        """Показать список лекций курса для ручной повторной отправки alert."""
+        if push_navigation:
+            await self.context_service.push_navigation(telegram_id, "course_alert_lections")
+        self._require_roles_admin(await self.resolve_roles(telegram_id))
+        response = await self.lection_service.get_lections_by_course(
+            course_id=course_id,
+            page=page,
+            page_size=5,
+        )
+        await self.context_service.set_context(
+            telegram_id,
+            action="course_alert_lections",
+            step="view",
+            data={"course_id": str(course_id), "page": page},
+        )
+        buttons = [
+            TelegramButtonSchema(text=button.text, action=button.action)
+            for lection in response.items
+            for button in [
+                TelegramButtons.create_course_alert_lection_button(lection.topic, str(lection.id))
+            ]
+        ]
+        buttons.extend(
+            TelegramButtonSchema(text=button.text, action=button.action)
+            for button in TelegramButtons.get_pagination_buttons(page, response.total_pages)
+        )
+        return ActionResponseSchema(
+            message=TelegramMessages.get_course_alert_select_lection(),
+            buttons=buttons,
+        )
+
+    async def render_course_alert_students(
+        self,
+        telegram_id: int,
+        course_id: uuid.UUID,
+        lection_id: uuid.UUID,
+        page: int,
+        push_navigation: bool = False,
+        message_prefix: str = "",
+    ) -> ActionResponseSchema:
+        """Показать список студентов для ручной повторной отправки alert."""
+        if push_navigation:
+            await self.context_service.push_navigation(telegram_id, "course_alert_students")
+        self._require_roles_admin(await self.resolve_roles(telegram_id))
+        lection = await self.lection_service.get_by_id(lection_id)
+        response = await self.student_service.get_students_by_course(
+            course_id=course_id,
+            page=page,
+            page_size=5,
+        )
+        await self.context_service.set_context(
+            telegram_id,
+            action="course_alert_students",
+            step="view",
+            data={
+                "course_id": str(course_id),
+                "lection_id": str(lection_id),
+                "page": page,
+            },
+        )
+        buttons = [
+            TelegramButtonSchema(text=button.text, action=button.action)
+            for student in response["items"]
+            for button in [
+                TelegramButtons.create_course_alert_student_button(
+                    student.full_name,
+                    str(student.id),
+                )
+            ]
+        ]
+        buttons.extend(
+            TelegramButtonSchema(text=button.text, action=button.action)
+            for button in TelegramButtons.get_pagination_buttons(page, response["total_pages"])
+        )
+        return ActionResponseSchema(
+            message=message_prefix + TelegramMessages.get_course_alert_select_student(lection.topic),
+            buttons=buttons,
         )
 
     async def render_analytics_course_menu(
@@ -1376,6 +1489,41 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
             awaiting_input=True,
         )
 
+    async def _send_course_reflection_alert(
+        self,
+        telegram_id: int,
+        roles: ResolvedRoles,
+        context_data: dict,
+        student_id: uuid.UUID,
+    ) -> ActionResponseSchema:
+        """Повторно отправить студенту alert по выбранной лекции."""
+        current_admin = self._require_roles_admin(roles)
+        if self.send_course_reflection_alert_use_case is None:
+            raise PermissionDeniedError("Сценарий повторной отправки alert сейчас недоступен.")
+
+        course_id = uuid.UUID(str(context_data["course_id"]))
+        lection_id = uuid.UUID(str(context_data["lection_id"]))
+        page = int(context_data.get("page", 1))
+        student = await self.student_service.get_by_id(student_id)
+        lection = await self.lection_service.get_by_id(lection_id)
+
+        await self.send_course_reflection_alert_use_case(
+            course_id=course_id,
+            lection_id=lection_id,
+            student_id=student_id,
+            current_admin=current_admin,
+        )
+        return await self.render_course_alert_students(
+            telegram_id,
+            course_id=course_id,
+            lection_id=lection_id,
+            page=page,
+            message_prefix=TelegramMessages.get_course_alert_sent(
+                student.full_name,
+                lection.topic,
+            ),
+        )
+
     async def _start_attach_teacher(self, telegram_id: int, roles: ResolvedRoles, context_data: dict) -> ActionResponseSchema:
         self._require_roles_admin(roles)
         await self.context_service.push_navigation(telegram_id, self.ATTACH_TEACHER_FULLNAME_SCREEN)
@@ -1668,6 +1816,19 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         action = context.get("action")
         if action == "parsed_lections":
             return await self.render_parsed_lections(telegram_id, uuid.UUID(str(data["course_id"])), page)
+        if action == "course_alert_lections":
+            return await self.render_course_alert_lections(
+                telegram_id,
+                uuid.UUID(str(data["course_id"])),
+                page,
+            )
+        if action == "course_alert_students":
+            return await self.render_course_alert_students(
+                telegram_id,
+                uuid.UUID(str(data["course_id"])),
+                uuid.UUID(str(data["lection_id"])),
+                page,
+            )
         if action == "admin_courses":
             return await self.render_admin_courses(telegram_id, page)
         if action == "analytics_courses":
@@ -1734,6 +1895,19 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
             return await self.render_course_menu(telegram_id, uuid.UUID(str(data["course_id"])))
         if previous_screen == "parsed_lections":
             return await self.render_parsed_lections(telegram_id, uuid.UUID(str(data["course_id"])), int(data.get("page", 1)))
+        if previous_screen == "course_alert_lections":
+            return await self.render_course_alert_lections(
+                telegram_id,
+                uuid.UUID(str(data["course_id"])),
+                int(data.get("page", 1)),
+            )
+        if previous_screen == "course_alert_students":
+            return await self.render_course_alert_students(
+                telegram_id,
+                uuid.UUID(str(data["course_id"])),
+                uuid.UUID(str(data["lection_id"])),
+                int(data.get("page", 1)),
+            )
         if previous_screen == "admin_courses":
             return await self.render_admin_courses(telegram_id, int(data.get("page", 1)))
         if previous_screen == "admin_course_details":

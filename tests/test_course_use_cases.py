@@ -20,6 +20,7 @@ from reflebot.apps.reflections.use_cases.course import (
     AttachStudentsToCourseUseCase,
     AttachTeachersToCourseUseCase,
     CreateCourseFromExcelUseCase,
+    SendCourseReflectionAlertUseCase,
     SendCourseBroadcastMessageUseCase,
 )
 
@@ -272,3 +273,45 @@ async def test_send_course_broadcast_message_use_case_publishes_only_students_wi
     assert first_payload.telegram_id == 111
     assert first_payload.message_text == "Hello students"
     assert second_payload.telegram_id == 333
+
+
+@pytest.mark.asyncio
+async def test_send_course_reflection_alert_use_case_publishes_prompt_for_selected_student():
+    lection_service = AsyncMock()
+    student_service = AsyncMock()
+    message_service = AsyncMock()
+    publisher = AsyncMock()
+    course_id = uuid.uuid4()
+    lection = create_lection(course_id)
+    student = create_student_with_telegram("Alice", 111)
+    lection_service.get_by_id.return_value = lection
+    student_service.get_by_id.return_value = student
+    message_service.build_message.return_value = Mock(
+        message_text="Reflection prompt",
+        parse_mode="HTML",
+        buttons=[],
+    )
+    use_case = SendCourseReflectionAlertUseCase(
+        lection_service=lection_service,
+        student_service=student_service,
+        message_service=message_service,
+        publisher=publisher,
+    )
+
+    await use_case(
+        course_id=course_id,
+        lection_id=lection.id,
+        student_id=student.id,
+        current_admin=create_admin(),
+    )
+
+    message_service.build_message.assert_awaited_once_with(
+        lection_session_id=lection.id,
+        student_id=student.id,
+    )
+    publisher.publish_course_message.assert_awaited_once()
+    payload = publisher.publish_course_message.await_args.args[0]
+    assert payload.course_id == course_id
+    assert payload.student_id == student.id
+    assert payload.telegram_id == 111
+    assert payload.message_text == "Reflection prompt"
