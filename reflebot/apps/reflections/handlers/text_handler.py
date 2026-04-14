@@ -115,6 +115,14 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
             action = context.get("action")
             step = context.get("step")
             data = context.get("data", {})
+            if action == "student_reflection_workflow" and step in {
+                "awaiting_reflection_video",
+                "awaiting_question_video",
+            }:
+                return ActionResponseSchema(
+                    message=TelegramMessages.get_reflection_video_required(),
+                    awaiting_input=True,
+                )
             if action == "create_course" and step == "awaiting_course_name":
                 if len(normalized_text) < 2:
                     return await self._validation_failure(
