@@ -1280,6 +1280,74 @@ async def test_button_handler_renders_student_question_prompt_without_upload_but
 
 
 @pytest.mark.asyncio
+async def test_text_handler_keeps_waiting_for_reflection_video_when_student_sends_text():
+    button_handler = build_button_handler()
+    context_service = AsyncMock()
+    context_service.get_context.return_value = {
+        "action": "student_reflection_workflow",
+        "step": "awaiting_reflection_video",
+        "data": {
+            "lection_id": str(uuid.uuid4()),
+            "stage": "reflection",
+        },
+    }
+    text_handler = TextInputHandler(
+        context_service=context_service,
+        admin_service=button_handler.admin_service,
+        teacher_service=button_handler.teacher_service,
+        student_service=button_handler.student_service,
+        create_admin_use_case=AsyncMock(),
+        attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
+        update_lection_use_case=AsyncMock(),
+        manage_questions_use_case=AsyncMock(),
+        button_handler=button_handler,
+    )
+
+    response = await text_handler.handle("/start", 2)
+
+    assert response.message == TelegramMessages.get_reflection_video_required()
+    assert response.awaiting_input is True
+    assert response.buttons == []
+    context_service.set_context.assert_not_called()
+    context_service.clear_context.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_text_handler_keeps_waiting_for_question_video_when_student_sends_text():
+    button_handler = build_button_handler()
+    context_service = AsyncMock()
+    context_service.get_context.return_value = {
+        "action": "student_reflection_workflow",
+        "step": "awaiting_question_video",
+        "data": {
+            "lection_id": str(uuid.uuid4()),
+            "stage": "question",
+        },
+    }
+    text_handler = TextInputHandler(
+        context_service=context_service,
+        admin_service=button_handler.admin_service,
+        teacher_service=button_handler.teacher_service,
+        student_service=button_handler.student_service,
+        create_admin_use_case=AsyncMock(),
+        attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
+        update_lection_use_case=AsyncMock(),
+        manage_questions_use_case=AsyncMock(),
+        button_handler=button_handler,
+    )
+
+    response = await text_handler.handle("любой текст", 2)
+
+    assert response.message == TelegramMessages.get_reflection_video_required()
+    assert response.awaiting_input is True
+    assert response.buttons == []
+    context_service.set_context.assert_not_called()
+    context_service.clear_context.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_button_handler_logs_generic_back_action_for_student_role():
     handler = build_button_handler()
     student = create_student()
