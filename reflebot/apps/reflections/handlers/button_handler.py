@@ -123,7 +123,9 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                 }
             ):
                 return ActionResponseSchema(
-                    message=TelegramMessages.get_reflection_video_required(),
+                    message=TelegramMessages.get_reflection_video_required(
+                        context_data.get("lection_topic")
+                    ),
                     awaiting_input=True,
                 )
 
