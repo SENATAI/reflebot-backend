@@ -73,39 +73,7 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
         normalized_text = text.strip()
         if not context:
             if normalized_text.lower() in {"/join_course", "join_course"}:
-                roles = await self.resolve_roles(telegram_id)
-                if roles.student is None and roles.primary_user is None:
-                    return await self.build_main_menu_response(
-                        telegram_id,
-                        TelegramMessages.get_join_course_permission_denied(),
-                    )
-                context_data = {
-                    "telegram_id": telegram_id,
-                }
-                if roles.student is not None:
-                    context_data.update(
-                        {
-                            "student_id": str(roles.student.id),
-                            "telegram_username": roles.student.telegram_username,
-                        },
-                    )
-                else:
-                    context_data.update(
-                        {
-                            "full_name": roles.primary_user.full_name,
-                            "telegram_username": roles.primary_user.telegram_username,
-                        },
-                    )
-                await self.context_service.set_context(
-                    telegram_id,
-                    action="join_course",
-                    step="awaiting_course_code",
-                    data=context_data,
-                )
-                return ActionResponseSchema(
-                    message=TelegramMessages.get_join_course_code_request(),
-                    awaiting_input=True,
-                )
+                return await self._start_join_course_command(telegram_id)
             return await self.build_main_menu_response(
                 telegram_id,
                 TelegramMessages.get_no_active_action(),
@@ -118,11 +86,14 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
             if action == "student_reflection_workflow" and step in {
                 "awaiting_reflection_video",
                 "awaiting_question_video",
+                "question_prompt",
             }:
                 return ActionResponseSchema(
                     message=TelegramMessages.get_reflection_video_required(),
                     awaiting_input=True,
                 )
+            if normalized_text.lower() in {"/join_course", "join_course"}:
+                return await self._start_join_course_command(telegram_id)
             if action == "create_course" and step == "awaiting_course_name":
                 if len(normalized_text) < 2:
                     return await self._validation_failure(
@@ -198,6 +169,11 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                                     telegram_username,
                                     int(data["telegram_id"]),
                                 )
+                    if await self.student_service.is_attached_to_course(student.id, course.id):
+                        await self.context_service.clear_context(telegram_id)
+                        return ActionResponseSchema(
+                            message=TelegramMessages.get_student_course_already_registered(),
+                        )
                     lection_ids = await self.button_handler.lection_service.get_lection_ids_by_course(course.id)
                     await self.student_service.attach_to_course([student.id], course.id)
                     await self.student_service.attach_to_lections([student.id], lection_ids)
@@ -251,6 +227,11 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                         )
 
                 course_id = uuid.UUID(str(data["course_id"]))
+                if await self.student_service.is_attached_to_course(student.id, course_id):
+                    await self.context_service.clear_context(telegram_id)
+                    return ActionResponseSchema(
+                        message=TelegramMessages.get_student_course_already_registered(),
+                    )
                 lection_ids = await self.button_handler.lection_service.get_lection_ids_by_course(course_id)
                 await self.student_service.attach_to_course([student.id], course_id)
                 await self.student_service.attach_to_lections([student.id], lection_ids)
@@ -483,6 +464,42 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
             )
         except Exception as exc:
             return await self.build_error_response(telegram_id, exc, awaiting_input=True)
+
+    async def _start_join_course_command(self, telegram_id: int) -> ActionResponseSchema:
+        """Запустить глобальную команду записи на курс по коду."""
+        roles = await self.resolve_roles(telegram_id)
+        if roles.student is None and roles.primary_user is None:
+            return await self.build_main_menu_response(
+                telegram_id,
+                TelegramMessages.get_join_course_permission_denied(),
+            )
+        context_data = {
+            "telegram_id": telegram_id,
+        }
+        if roles.student is not None:
+            context_data.update(
+                {
+                    "student_id": str(roles.student.id),
+                    "telegram_username": roles.student.telegram_username,
+                },
+            )
+        else:
+            context_data.update(
+                {
+                    "full_name": roles.primary_user.full_name,
+                    "telegram_username": roles.primary_user.telegram_username,
+                },
+            )
+        await self.context_service.set_context(
+            telegram_id,
+            action="join_course",
+            step="awaiting_course_code",
+            data=context_data,
+        )
+        return ActionResponseSchema(
+            message=TelegramMessages.get_join_course_code_request(),
+            awaiting_input=True,
+        )
 
     async def _validation_failure(
         self,

@@ -114,6 +114,18 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
             context_data = context.get("data", {})
             roles = await self.resolve_roles(telegram_id)
             await self._log_student_button_action(roles, action)
+            if (
+                context.get("action") == "student_reflection_workflow"
+                and context.get("step") in {
+                    "awaiting_reflection_video",
+                    "awaiting_question_video",
+                    "question_prompt",
+                }
+            ):
+                return ActionResponseSchema(
+                    message=TelegramMessages.get_reflection_video_required(),
+                    awaiting_input=True,
+                )
 
             if base_action == TelegramButtons.STUDENT_START_REFLECTION and parts:
                 return await self._start_student_reflection(

@@ -129,6 +129,31 @@ class AuthService(AuthServiceProtocol):
         is_teacher = teacher is not None
         is_student = student is not None
 
+        current_context = await self.context_service.get_context(telegram_id)
+        if (
+            is_student
+            and isinstance(current_context, dict)
+            and current_context.get("action") == "student_reflection_workflow"
+            and current_context.get("step") in {
+                "awaiting_reflection_video",
+                "awaiting_question_video",
+                "question_prompt",
+            }
+        ):
+            return UserLoginResponseSchema(
+                full_name=user_data.full_name,
+                telegram_username=user_data.telegram_username,
+                telegram_id=telegram_id,
+                is_active=user_data.is_active,
+                is_admin=is_admin,
+                is_teacher=is_teacher,
+                is_student=is_student,
+                message=TelegramMessages.get_reflection_video_required(),
+                parse_mode="HTML",
+                buttons=[],
+                awaiting_input=True,
+            )
+
         # Если пользователь уже найден хотя бы в одной из ролей, сбрасываем
         # незавершённый student-flow по коду курса и возвращаем обычное меню.
         await self.context_service.clear_context(telegram_id)

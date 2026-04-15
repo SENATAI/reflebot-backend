@@ -62,6 +62,14 @@ class StudentServiceProtocol(Protocol):
     ) -> None:
         """Привязать студентов к курсу."""
         ...
+
+    async def is_attached_to_course(
+        self,
+        student_id: uuid.UUID,
+        course_id: uuid.UUID,
+    ) -> bool:
+        """Проверить, записан ли студент на курс."""
+        ...
     
     async def attach_to_lections(
         self,
@@ -230,6 +238,17 @@ class StudentService(StudentServiceProtocol):
         
         # Используем bulk_create для оптимизации
         await self.student_course_repository.bulk_create(student_course_schemas)
+
+    async def is_attached_to_course(
+        self,
+        student_id: uuid.UUID,
+        course_id: uuid.UUID,
+    ) -> bool:
+        """Проверить, записан ли студент на курс."""
+        return await self.student_course_repository.exists_by_student_and_course(
+            student_id,
+            course_id,
+        )
     
     async def attach_to_lections(
         self,
