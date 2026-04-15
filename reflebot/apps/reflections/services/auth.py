@@ -148,7 +148,9 @@ class AuthService(AuthServiceProtocol):
                 is_admin=is_admin,
                 is_teacher=is_teacher,
                 is_student=is_student,
-                message=TelegramMessages.get_reflection_video_required(),
+                message=TelegramMessages.get_reflection_video_required(
+                    (current_context.get("data") or {}).get("lection_topic")
+                ),
                 parse_mode="HTML",
                 buttons=[],
                 awaiting_input=True,

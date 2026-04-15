@@ -208,7 +208,7 @@ async def test_auth_service_keeps_student_video_context_on_start_command(context
     context_service.get_context.return_value = {
         "action": "student_reflection_workflow",
         "step": context_step,
-        "data": {"stage": "reflection"},
+        "data": {"stage": "reflection", "lection_topic": "Линейная алгебра"},
     }
 
     service = build_auth_service(
@@ -220,7 +220,9 @@ async def test_auth_service_keeps_student_video_context_on_start_command(context
 
     response = await service.login_user("student_user", AdminLoginSchema(telegram_id=99))
 
-    assert response.message == TelegramMessages.get_reflection_video_required()
+    assert response.message == TelegramMessages.get_reflection_video_required(
+        "Линейная алгебра"
+    )
     assert response.buttons == []
     assert response.awaiting_input is True
     context_service.clear_context.assert_not_awaited()

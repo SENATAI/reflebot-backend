@@ -1411,6 +1411,7 @@ async def test_text_handler_keeps_waiting_for_reflection_video_when_student_send
         "step": "awaiting_reflection_video",
         "data": {
             "lection_id": str(uuid.uuid4()),
+            "lection_topic": "Теория вероятностей",
             "stage": "reflection",
         },
     }
@@ -1429,7 +1430,9 @@ async def test_text_handler_keeps_waiting_for_reflection_video_when_student_send
 
     response = await text_handler.handle("/start", 2)
 
-    assert response.message == TelegramMessages.get_reflection_video_required()
+    assert response.message == TelegramMessages.get_reflection_video_required(
+        "Теория вероятностей"
+    )
     assert response.awaiting_input is True
     assert response.buttons == []
     context_service.set_context.assert_not_called()
@@ -1445,6 +1448,7 @@ async def test_text_handler_keeps_waiting_for_question_video_when_student_sends_
         "step": "awaiting_question_video",
         "data": {
             "lection_id": str(uuid.uuid4()),
+            "lection_topic": "Теория вероятностей",
             "stage": "question",
         },
     }
@@ -1463,7 +1467,9 @@ async def test_text_handler_keeps_waiting_for_question_video_when_student_sends_
 
     response = await text_handler.handle("любой текст", 2)
 
-    assert response.message == TelegramMessages.get_reflection_video_required()
+    assert response.message == TelegramMessages.get_reflection_video_required(
+        "Теория вероятностей"
+    )
     assert response.awaiting_input is True
     assert response.buttons == []
     context_service.set_context.assert_not_called()
@@ -1479,6 +1485,7 @@ async def test_text_handler_keeps_waiting_for_question_prompt_video_when_student
         "step": "question_prompt",
         "data": {
             "lection_id": str(uuid.uuid4()),
+            "lection_topic": "Теория вероятностей",
             "stage": "question",
         },
     }
@@ -1497,7 +1504,9 @@ async def test_text_handler_keeps_waiting_for_question_prompt_video_when_student
 
     response = await text_handler.handle("/start", 2)
 
-    assert response.message == TelegramMessages.get_reflection_video_required()
+    assert response.message == TelegramMessages.get_reflection_video_required(
+        "Теория вероятностей"
+    )
     assert response.awaiting_input is True
     assert response.buttons == []
     context_service.set_context.assert_not_called()
@@ -1515,13 +1524,16 @@ async def test_button_handler_blocks_callbacks_while_waiting_for_student_video()
         "step": "question_prompt",
         "data": {
             "lection_id": str(uuid.uuid4()),
+            "lection_topic": "Теория вероятностей",
             "stage": "question",
         },
     }
 
     response = await handler.handle(TelegramButtons.STUDENT_JOIN_COURSE, student.telegram_id)
 
-    assert response.message == TelegramMessages.get_reflection_video_required()
+    assert response.message == TelegramMessages.get_reflection_video_required(
+        "Теория вероятностей"
+    )
     assert response.awaiting_input is True
     assert response.buttons == []
     handler.context_service.set_context.assert_not_called()

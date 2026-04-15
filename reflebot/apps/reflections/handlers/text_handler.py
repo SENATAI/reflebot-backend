@@ -89,7 +89,9 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                 "question_prompt",
             }:
                 return ActionResponseSchema(
-                    message=TelegramMessages.get_reflection_video_required(),
+                    message=TelegramMessages.get_reflection_video_required(
+                        data.get("lection_topic")
+                    ),
                     awaiting_input=True,
                 )
             if normalized_text.lower() in {"/join_course", "join_course"}:

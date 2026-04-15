@@ -380,9 +380,14 @@ class TelegramMessages:
         return "🎙️Загрузите кружок/видео, я вас внимательно слушаю."
 
     @staticmethod
-    def get_reflection_video_required() -> str:
+    def get_reflection_video_required(lection_topic: str | None = None) -> str:
         """Сообщение, если вместо кружка/видео пришёл текст или команда."""
-        return "Сначала запишите кружок"
+        topic = lection_topic or "выбранной лекции"
+        return (
+            "⚠️ Сейчас невозможно отправить данную команду, так как вы активировали "
+            f"запись рефлексии на <b>{topic}</b>\n\n"
+            "Чтобы продолжить запишите кружок в чат с рефлексией. "
+        )
 
     @staticmethod
     def get_reflection_video_button_required() -> str:
