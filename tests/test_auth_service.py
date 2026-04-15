@@ -186,6 +186,48 @@ async def test_auth_service_student_only_receives_join_course_and_support_button
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "context_step",
+    ["awaiting_reflection_video", "awaiting_question_video", "question_prompt"],
+)
+async def test_auth_service_keeps_student_video_context_on_start_command(context_step: str):
+    admin_repository = AsyncMock()
+    student_repository = AsyncMock()
+    teacher_repository = AsyncMock()
+    context_service = AsyncMock()
+    student = create_student()
+
+    admin_repository.get_by_telegram_username.side_effect = ModelFieldNotFoundException(
+        Admin,
+        "telegram_username",
+        "student_user",
+    )
+    student_repository.get_by_telegram_username.return_value = student
+    student_repository.update_telegram_id.return_value = student.model_copy(update={"telegram_id": 99})
+    teacher_repository.get_by_telegram_username.return_value = None
+    context_service.get_context.return_value = {
+        "action": "student_reflection_workflow",
+        "step": context_step,
+        "data": {"stage": "reflection"},
+    }
+
+    service = build_auth_service(
+        admin_repository=admin_repository,
+        student_repository=student_repository,
+        teacher_repository=teacher_repository,
+        context_service=context_service,
+    )
+
+    response = await service.login_user("student_user", AdminLoginSchema(telegram_id=99))
+
+    assert response.message == TelegramMessages.get_reflection_video_required()
+    assert response.buttons == []
+    assert response.awaiting_input is True
+    context_service.clear_context.assert_not_awaited()
+    context_service.set_context.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_auth_service_existing_admin_or_teacher_never_falls_back_to_course_code_prompt():
     admin_repository = AsyncMock()
     student_repository = AsyncMock()

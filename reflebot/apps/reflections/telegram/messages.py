@@ -385,6 +385,11 @@ class TelegramMessages:
         return "Сначала запишите кружок"
 
     @staticmethod
+    def get_reflection_video_button_required() -> str:
+        """Сообщение, если кружок/видео отправлен без нажатия кнопки записи."""
+        return "Сначала нажмите кнопку записи кружка/видео."
+
+    @staticmethod
     def get_reflection_video_saved() -> str:
         """Сообщение после успешной записи кружка."""
         return "💾 Кружок/видео сохранён!\n\n👇 Используя кнопки под сообщением, выберите, что хотите сделать дальше:"
@@ -498,6 +503,11 @@ class TelegramMessages:
     def get_student_course_registered(course_name: str) -> str:
         """Сообщение об успешной записи студента на курс."""
         return f"Вы успешно записались на курс: <b>{course_name}</b>. \n\nТеперь осталось дождаться уведомления о завершении первой лекции — и можно будет отправить рефлексию."
+
+    @staticmethod
+    def get_student_course_already_registered() -> str:
+        """Сообщение, если студент уже записан на выбранный курс."""
+        return "Вы уже записаны на данный курс"
 
     @staticmethod
     def get_join_course_permission_denied() -> str:

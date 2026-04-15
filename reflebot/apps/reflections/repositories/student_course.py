@@ -4,6 +4,7 @@
 
 import uuid
 
+import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert
 
 from reflebot.core.repositories.base_repository import BaseRepositoryImpl, BaseRepositoryProtocol
@@ -24,7 +25,14 @@ class StudentCourseRepositoryProtocol(
     ]
 ):
     """Протокол репозитория привязок студентов к курсам."""
-    pass
+
+    async def exists_by_student_and_course(
+        self,
+        student_id: uuid.UUID,
+        course_id: uuid.UUID,
+    ) -> bool:
+        """Проверить наличие привязки студента к курсу."""
+        ...
 
 
 class StudentCourseRepository(
@@ -37,6 +45,19 @@ class StudentCourseRepository(
     StudentCourseRepositoryProtocol,
 ):
     """Репозиторий для работы с привязками студентов к курсам."""
+
+    async def exists_by_student_and_course(
+        self,
+        student_id: uuid.UUID,
+        course_id: uuid.UUID,
+    ) -> bool:
+        """Проверить наличие привязки студента к курсу."""
+        async with self.session as s:
+            stmt = sa.select(sa.exists().where(
+                self.model_type.student_id == student_id,
+                self.model_type.course_session_id == course_id,
+            ))
+            return bool((await s.execute(stmt)).scalar_one())
 
     async def bulk_create(
         self,

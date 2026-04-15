@@ -108,6 +108,7 @@ def build_button_handler() -> ButtonActionHandler:
     admin_service.get_by_telegram_id.return_value = create_admin()
     teacher_service.get_by_telegram_id.return_value = None
     student_service.get_by_telegram_id.return_value = None
+    student_service.is_attached_to_course.return_value = False
     context_service = AsyncMock()
     context_service.get_context.return_value = None
     telegram_tracked_message_service = AsyncMock()
@@ -310,12 +311,95 @@ async def test_text_handler_registers_new_student_after_fullname():
 
 
 @pytest.mark.asyncio
+async def test_text_handler_register_course_stops_when_student_already_attached():
+    button_handler = build_button_handler()
+    context_service = AsyncMock()
+    course = create_course()
+    student = create_student()
+    context_service.get_context.return_value = {
+        "action": "register_course_by_code",
+        "step": "awaiting_fullname",
+        "data": {
+            "course_id": str(course.id),
+            "course_name": course.name,
+            "telegram_username": "student",
+            "telegram_id": 2,
+        },
+    }
+    button_handler.student_service.get_by_telegram_username.return_value = student
+    button_handler.student_service.is_attached_to_course.return_value = True
+    text_handler = TextInputHandler(
+        context_service=context_service,
+        admin_service=button_handler.admin_service,
+        teacher_service=button_handler.teacher_service,
+        student_service=button_handler.student_service,
+        create_admin_use_case=AsyncMock(),
+        attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
+        update_lection_use_case=AsyncMock(),
+        manage_questions_use_case=AsyncMock(),
+        button_handler=button_handler,
+    )
+
+    response = await text_handler.handle("Иванов Иван", 2)
+
+    button_handler.student_service.attach_to_course.assert_not_awaited()
+    button_handler.student_service.attach_to_lections.assert_not_awaited()
+    context_service.clear_context.assert_awaited_once_with(2)
+    assert response.message == TelegramMessages.get_student_course_already_registered()
+
+
+@pytest.mark.asyncio
 async def test_text_handler_join_course_prompts_existing_student_for_code():
     button_handler = build_button_handler()
     student = create_student()
     button_handler.student_service.get_by_telegram_id.return_value = student
     context_service = AsyncMock()
     context_service.get_context.return_value = None
+    text_handler = TextInputHandler(
+        context_service=context_service,
+        admin_service=button_handler.admin_service,
+        teacher_service=button_handler.teacher_service,
+        student_service=button_handler.student_service,
+        create_admin_use_case=AsyncMock(),
+        attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
+        update_lection_use_case=AsyncMock(),
+        manage_questions_use_case=AsyncMock(),
+        button_handler=button_handler,
+    )
+
+    response = await text_handler.handle("/join_course", student.telegram_id)
+
+    context_service.set_context.assert_awaited_once_with(
+        student.telegram_id,
+        action="join_course",
+        step="awaiting_course_code",
+        data={
+            "student_id": str(student.id),
+            "telegram_username": student.telegram_username,
+            "telegram_id": student.telegram_id,
+        },
+    )
+    assert response.message == TelegramMessages.get_join_course_code_request()
+    assert response.awaiting_input is True
+
+
+@pytest.mark.asyncio
+async def test_text_handler_join_course_command_works_from_existing_view_context():
+    button_handler = build_button_handler()
+    student = create_student()
+    button_handler.admin_service.get_by_telegram_id.return_value = None
+    button_handler.student_service.get_by_telegram_id.return_value = student
+    context_service = AsyncMock()
+    context_service.get_context.return_value = {
+        "action": "reflection_details",
+        "step": "view",
+        "data": {
+            "student_id": str(student.id),
+            "lection_id": str(uuid.uuid4()),
+        },
+    }
     text_handler = TextInputHandler(
         context_service=context_service,
         admin_service=button_handler.admin_service,
@@ -384,6 +468,45 @@ async def test_text_handler_join_course_attaches_existing_student_by_code():
     button_handler.student_service.attach_to_lections.assert_awaited_once_with([student.id], lection_ids)
     context_service.clear_context.assert_awaited_once_with(student.telegram_id)
     assert response.message == TelegramMessages.get_student_course_registered(course.name)
+
+
+@pytest.mark.asyncio
+async def test_text_handler_join_course_stops_when_student_already_attached():
+    button_handler = build_button_handler()
+    student = create_student()
+    course = create_course()
+    context_service = AsyncMock()
+    context_service.get_context.return_value = {
+        "action": "join_course",
+        "step": "awaiting_course_code",
+        "data": {
+            "student_id": str(student.id),
+            "telegram_username": student.telegram_username,
+            "telegram_id": student.telegram_id,
+        },
+    }
+    button_handler.student_service.get_by_id.return_value = student
+    button_handler.student_service.is_attached_to_course.return_value = True
+    button_handler.course_service.get_by_join_code.return_value = course
+    text_handler = TextInputHandler(
+        context_service=context_service,
+        admin_service=button_handler.admin_service,
+        teacher_service=button_handler.teacher_service,
+        student_service=button_handler.student_service,
+        create_admin_use_case=AsyncMock(),
+        attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
+        update_lection_use_case=AsyncMock(),
+        manage_questions_use_case=AsyncMock(),
+        button_handler=button_handler,
+    )
+
+    response = await text_handler.handle(course.join_code, student.telegram_id)
+
+    button_handler.student_service.attach_to_course.assert_not_awaited()
+    button_handler.student_service.attach_to_lections.assert_not_awaited()
+    context_service.clear_context.assert_awaited_once_with(student.telegram_id)
+    assert response.message == TelegramMessages.get_student_course_already_registered()
 
 
 @pytest.mark.asyncio
@@ -1348,6 +1471,63 @@ async def test_text_handler_keeps_waiting_for_question_video_when_student_sends_
 
 
 @pytest.mark.asyncio
+async def test_text_handler_keeps_waiting_for_question_prompt_video_when_student_sends_text():
+    button_handler = build_button_handler()
+    context_service = AsyncMock()
+    context_service.get_context.return_value = {
+        "action": "student_reflection_workflow",
+        "step": "question_prompt",
+        "data": {
+            "lection_id": str(uuid.uuid4()),
+            "stage": "question",
+        },
+    }
+    text_handler = TextInputHandler(
+        context_service=context_service,
+        admin_service=button_handler.admin_service,
+        teacher_service=button_handler.teacher_service,
+        student_service=button_handler.student_service,
+        create_admin_use_case=AsyncMock(),
+        attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
+        update_lection_use_case=AsyncMock(),
+        manage_questions_use_case=AsyncMock(),
+        button_handler=button_handler,
+    )
+
+    response = await text_handler.handle("/start", 2)
+
+    assert response.message == TelegramMessages.get_reflection_video_required()
+    assert response.awaiting_input is True
+    assert response.buttons == []
+    context_service.set_context.assert_not_called()
+    context_service.clear_context.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_button_handler_blocks_callbacks_while_waiting_for_student_video():
+    handler = build_button_handler()
+    student = create_student()
+    handler.admin_service.get_by_telegram_id.return_value = None
+    handler.student_service.get_by_telegram_id.return_value = student
+    handler.context_service.get_context.return_value = {
+        "action": "student_reflection_workflow",
+        "step": "question_prompt",
+        "data": {
+            "lection_id": str(uuid.uuid4()),
+            "stage": "question",
+        },
+    }
+
+    response = await handler.handle(TelegramButtons.STUDENT_JOIN_COURSE, student.telegram_id)
+
+    assert response.message == TelegramMessages.get_reflection_video_required()
+    assert response.awaiting_input is True
+    assert response.buttons == []
+    handler.context_service.set_context.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_button_handler_logs_generic_back_action_for_student_role():
     handler = build_button_handler()
     student = create_student()
@@ -1421,6 +1601,47 @@ async def test_file_handler_saves_student_video_to_draft_and_returns_review_acti
         "student_upload_reflection_video",
     )
     assert response.message == TelegramMessages.get_reflection_video_saved()
+
+
+@pytest.mark.asyncio
+async def test_file_handler_rejects_student_video_until_add_button_is_pressed():
+    context_service = AsyncMock()
+    context_service.get_context.return_value = {
+        "action": "student_reflection_workflow",
+        "step": "review_reflection_videos",
+        "data": {
+            "lection_id": str(uuid.uuid4()),
+            "lection_topic": "Теория вероятностей",
+            "stage": "reflection",
+            "reflection_videos": ["video-note-1"],
+            "questions": [],
+            "current_question_index": 0,
+            "current_question_videos": [],
+            "qa_answers": [],
+        },
+    }
+    student = create_student()
+    button_handler = build_button_handler()
+    button_handler.student_service.get_by_telegram_id.return_value = student
+    reflection_workflow_service = Mock()
+    student_history_log_service = AsyncMock()
+    file_handler = FileUploadHandler(
+        context_service=context_service,
+        create_course_from_excel_use_case=AsyncMock(),
+        append_course_from_excel_use_case=AsyncMock(),
+        attach_students_to_course_use_case=AsyncMock(),
+        manage_files_use_case=AsyncMock(),
+        reflection_workflow_service=reflection_workflow_service,
+        button_handler=button_handler,
+        student_history_log_service=student_history_log_service,
+    )
+
+    response = await file_handler.handle(None, student.telegram_id, telegram_file_id="video-note-2")
+
+    reflection_workflow_service.add_video_to_draft.assert_not_called()
+    context_service.set_context.assert_not_called()
+    student_history_log_service.log_action.assert_not_awaited()
+    assert response.message == TelegramMessages.get_reflection_video_button_required()
 
 
 @pytest.mark.asyncio

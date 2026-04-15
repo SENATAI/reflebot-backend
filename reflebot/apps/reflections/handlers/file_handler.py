@@ -76,9 +76,18 @@ class FileUploadHandler(FileUploadHandlerProtocol):
 
         try:
             action = context.get("action")
+            step = context.get("step")
             data = context.get("data", {})
 
             if action == "student_reflection_workflow":
+                if step not in {
+                    "awaiting_reflection_video",
+                    "awaiting_question_video",
+                    "question_prompt",
+                }:
+                    return ActionResponseSchema(
+                        message=TelegramMessages.get_reflection_video_button_required(),
+                    )
                 if not telegram_file_id:
                     raise ValidationError(
                         "telegram_file_id",
