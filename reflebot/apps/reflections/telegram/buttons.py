@@ -462,10 +462,15 @@ class TelegramButtons:
         )
     
     @staticmethod
-    def create_student_button(student_name: str, student_id: str) -> TelegramButton:
+    def create_student_button(
+        student_name: str,
+        student_id: str,
+        telegram_username: str | None = None,
+    ) -> TelegramButton:
         """Создать кнопку для студента."""
+        username_suffix = f" (@{telegram_username})" if telegram_username else ""
         return TelegramButton(
-            text=f"👨‍🎓 {student_name}",
+            text=f"👨‍🎓 {student_name}{username_suffix}",
             action=f"{TelegramButtons.ANALYTICS_FIND_STUDENT}:{student_id}"
         )
 
@@ -478,10 +483,15 @@ class TelegramButtons:
         )
 
     @staticmethod
-    def create_course_alert_student_button(student_name: str, student_id: str) -> TelegramButton:
+    def create_course_alert_student_button(
+        student_name: str,
+        student_id: str,
+        telegram_username: str | None = None,
+    ) -> TelegramButton:
         """Создать кнопку выбора студента для повторной отправки алерта."""
+        username_suffix = f" (@{telegram_username})" if telegram_username else ""
         return TelegramButton(
-            text=f"👨‍🎓 {student_name}",
+            text=f"👨‍🎓 {student_name}{username_suffix}",
             action=f"{TelegramButtons.COURSE_ALERT_STUDENT}:{student_id}",
         )
     

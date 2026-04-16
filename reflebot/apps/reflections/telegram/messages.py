@@ -613,14 +613,16 @@ class TelegramMessages:
     @staticmethod
     def get_student_statistics(
         student_name: str,
+        telegram_username: str | None,
         total_lections: int,
         reflections_count: int,
         qa_count: int,
     ) -> str:
         """Статистика студента по курсу."""
+        username_line = f" (@{telegram_username})" if telegram_username else ""
         return f"""📊 <b>Статистика студента</b>
 
-👨‍🎓 {student_name}
+👨‍🎓 {student_name}{username_line}
 
 📝 Всего лекций: {total_lections}
 ✍️ Рефлексий: {reflections_count}
@@ -631,13 +633,15 @@ class TelegramMessages:
     @staticmethod
     def get_reflection_details(
         student_name: str,
+        telegram_username: str | None,
         lection_topic: str,
         created_at: datetime,
     ) -> str:
         """Детали рефлексии студента."""
+        username_line = f" (@{telegram_username})" if telegram_username else ""
         return f"""✍️ <b>Рефлексия</b>
 
-👨‍🎓 {student_name}
+👨‍🎓 {student_name}{username_line}
 📝 {lection_topic}
 📅 {TelegramMessages._format_datetime(created_at)}"""
     

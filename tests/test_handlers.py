@@ -2105,6 +2105,7 @@ async def test_render_reflection_details_returns_dialog_messages_in_order():
     response = await handler.render_reflection_details(1, student.id, lection.id)
 
     assert "Архитектура ПО" in response.message
+    assert f"@{student.telegram_username}" in response.message
     assert [item.files[0].telegram_file_id for item in response.dialog_messages if item.files] == [
         "reflection-video-1",
         "reflection-video-2",
@@ -2147,6 +2148,7 @@ async def test_render_student_statistics_uses_short_reflection_actions():
     response = await handler.render_student_statistics(1, course.id, student.id)
 
     assert response.buttons[0].action == f"{TelegramButtons.ANALYTICS_VIEW_REFLECTION}:{lection.id}"
+    assert f"@{student.telegram_username}" in response.message
 
 
 @pytest.mark.asyncio
@@ -2169,6 +2171,22 @@ async def test_render_analytics_lection_statistics_uses_short_reflection_actions
     response = await handler.render_analytics_lection_statistics(1, lection.id, 1)
 
     assert response.buttons[0].action == f"{TelegramButtons.ANALYTICS_VIEW_REFLECTION}:{student.id}"
+    assert response.buttons[0].text == f"👨‍🎓 {student.full_name} (@{student.telegram_username})"
+
+
+@pytest.mark.asyncio
+async def test_render_analytics_student_list_shows_username_in_buttons():
+    handler = build_button_handler()
+    student = create_student()
+    course = create_course()
+    handler.student_service.get_students_by_course.return_value = {
+        "items": [student],
+        "total_pages": 1,
+    }
+
+    response = await handler.render_analytics_student_list(1, course.id, 1)
+
+    assert response.buttons[0].text == f"👨‍🎓 {student.full_name} (@{student.telegram_username})"
 
 
 @pytest.mark.asyncio
