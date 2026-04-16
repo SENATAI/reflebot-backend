@@ -752,6 +752,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                 TelegramButtons.create_course_alert_student_button(
                     student.full_name,
                     str(student.id),
+                    student.telegram_username,
                 )
             ]
         ]
@@ -848,7 +849,11 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         )
         buttons = [
             TelegramButtonSchema(
-                text=f"👨‍🎓 {student.full_name}",
+                text=TelegramButtons.create_student_button(
+                    student.full_name,
+                    str(student.id),
+                    student.telegram_username,
+                ).text,
                 action=f"{TelegramButtons.ANALYTICS_VIEW_REFLECTION}:{student.id}",
             )
             for student in pagination["items"]
@@ -888,7 +893,13 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         buttons = [
             TelegramButtonSchema(text=button.text, action=button.action)
             for student in response["items"]
-            for button in [TelegramButtons.create_student_button(student.full_name, str(student.id))]
+            for button in [
+                TelegramButtons.create_student_button(
+                    student.full_name,
+                    str(student.id),
+                    student.telegram_username,
+                )
+            ]
         ]
         buttons.extend(
             TelegramButtonSchema(text=button.text, action=button.action)
@@ -936,6 +947,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         return ActionResponseSchema(
             message=TelegramMessages.get_student_statistics(
                 student_name=statistics.student.full_name,
+                telegram_username=statistics.student.telegram_username,
                 total_lections=statistics.total_lections,
                 reflections_count=statistics.reflections_count,
                 qa_count=statistics.qa_count,
@@ -964,6 +976,7 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         lection = await self.lection_service.get_by_id(lection_id)
         message = TelegramMessages.get_reflection_details(
             student_name=student.full_name,
+            telegram_username=student.telegram_username,
             lection_topic=lection.topic,
             created_at=details.reflection.submitted_at,
         )
