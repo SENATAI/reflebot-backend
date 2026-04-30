@@ -308,7 +308,6 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                     )
 
             if action == "attach_teacher" and step == "awaiting_fullname":
-                current_admin = await self.button_handler._require_admin(telegram_id)
                 if len(normalized_text) < 3:
                     return await self._validation_failure(
                         telegram_id,
@@ -321,7 +320,7 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                     telegram_id,
                     action="attach_teacher",
                     step="awaiting_username",
-                    data={"course_id": data["course_id"], "fullname": normalized_text},
+                    data={**data, "fullname": normalized_text},
                 )
                 await self.context_service.push_navigation(
                     telegram_id,
@@ -346,17 +345,71 @@ class TextInputHandler(BaseHandler, TextInputHandlerProtocol):
                         data,
                         TelegramMessages.get_validation_error_username(),
                     )
+                existing_teacher = await self.teacher_service.get_by_telegram_username(normalized_text)
+                if existing_teacher and await self.teacher_service.is_attached_to_course(
+                    existing_teacher.id,
+                    uuid.UUID(str(data["course_id"])),
+                ):
+                    if data.get("appended_lection_ids"):
+                        return await self.button_handler.render_append_course_menu(
+                            telegram_id,
+                            uuid.UUID(str(data["course_id"])),
+                            int(data.get("page", 1)),
+                            list(data.get("appended_lection_ids", [])),
+                            message_prefix=TelegramMessages.get_teacher_already_attached(
+                                existing_teacher.full_name
+                            ),
+                        )
+                    if data.get("course_flow") == "existing_course":
+                        return await self.button_handler.render_admin_course_details(
+                            telegram_id,
+                            uuid.UUID(str(data["course_id"])),
+                            page=int(data.get("page", 1)),
+                            message_prefix=TelegramMessages.get_teacher_already_attached(
+                                existing_teacher.full_name
+                            ),
+                        )
+                    await self.context_service.set_context(
+                        telegram_id,
+                        action="teacher_attached",
+                        step="view",
+                        data={key: value for key, value in data.items() if key != "fullname"},
+                    )
+                    return ActionResponseSchema(
+                        message=TelegramMessages.get_teacher_already_attached(
+                            existing_teacher.full_name
+                        ),
+                        buttons=[
+                            {"text": button.text, "action": button.action}
+                            for button in TelegramButtons.get_teacher_attached_buttons()
+                        ],
+                    )
                 teacher = await self.attach_teachers_to_course_use_case(
                     course_id=uuid.UUID(str(data["course_id"])),
                     full_name=data["fullname"],
                     telegram_username=normalized_text,
                     current_admin=current_admin,
                 )
+                if data.get("appended_lection_ids"):
+                    return await self.button_handler.render_append_course_menu(
+                        telegram_id,
+                        uuid.UUID(str(data["course_id"])),
+                        int(data.get("page", 1)),
+                        list(data.get("appended_lection_ids", [])),
+                        message_prefix=TelegramMessages.get_teacher_attached(teacher.full_name),
+                    )
+                if data.get("course_flow") == "existing_course":
+                    return await self.button_handler.render_admin_course_details(
+                        telegram_id,
+                        uuid.UUID(str(data["course_id"])),
+                        page=int(data.get("page", 1)),
+                        message_prefix=TelegramMessages.get_teacher_attached(teacher.full_name),
+                    )
                 await self.context_service.set_context(
                     telegram_id,
                     action="teacher_attached",
                     step="view",
-                    data={"course_id": data["course_id"]},
+                    data={key: value for key, value in data.items() if key != "fullname"},
                 )
                 return ActionResponseSchema(
                     message=TelegramMessages.get_teacher_attached(teacher.full_name),

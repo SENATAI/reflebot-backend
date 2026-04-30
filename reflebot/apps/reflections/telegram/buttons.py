@@ -53,6 +53,7 @@ class TelegramButtons:
     COURSE_ATTACH_TEACHERS = "course_attach_teachers"
     COURSE_ATTACH_STUDENTS = "course_attach_students"
     COURSE_CANCEL_PARSING = "course_cancel_parsing"
+    COURSE_CONFIRM_APPEND = "course_confirm_append"
     
     # Действия для управления лекцией
     LECTION_INFO = "lection_info"
@@ -242,6 +243,14 @@ class TelegramButtons:
         """Получить кнопки карточки курса в разделе курсов."""
         return [
             TelegramButton(
+                text="📝 Спаршенные лекции",
+                action=TelegramButtons.COURSE_VIEW_PARSED_LECTIONS,
+            ),
+            TelegramButton(
+                text="👨‍🏫 Добавить преподавателя",
+                action=TelegramButtons.COURSE_ATTACH_TEACHERS,
+            ),
+            TelegramButton(
                 text="📥 Догрузить курс",
                 action=TelegramButtons.COURSE_APPEND_LECTIONS,
             ),
@@ -258,6 +267,39 @@ class TelegramButtons:
                 action=TelegramButtons.BACK,
             ),
         ]
+
+    @staticmethod
+    def get_append_course_menu_buttons(
+        show_add_default_questions: bool = False,
+    ) -> list[TelegramButton]:
+        """Получить кнопки подтверждения догруженного курса."""
+        buttons = [
+            TelegramButton(
+                text="📝 Спаршенные лекции",
+                action=TelegramButtons.COURSE_VIEW_PARSED_LECTIONS,
+            ),
+            TelegramButton(
+                text="👨‍🏫 Привязать преподавателей",
+                action=TelegramButtons.COURSE_ATTACH_TEACHERS,
+            ),
+            TelegramButton(
+                text="❌ Отменить парсинг",
+                action=TelegramButtons.COURSE_CANCEL_PARSING,
+            ),
+            TelegramButton(
+                text="✅ Догрузить",
+                action=TelegramButtons.COURSE_CONFIRM_APPEND,
+            ),
+        ]
+        if show_add_default_questions:
+            buttons.insert(
+                1,
+                TelegramButton(
+                    text="❓ Добавить вопросы для лекций без вопросов",
+                    action=TelegramButtons.COURSE_ADD_DEFAULT_QUESTIONS,
+                ),
+            )
+        return buttons
     
     @staticmethod
     def get_lection_details_buttons() -> list[TelegramButton]:

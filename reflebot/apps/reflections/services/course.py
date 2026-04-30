@@ -6,7 +6,7 @@ import secrets
 import uuid
 from typing import Protocol
 import sqlalchemy as sa
-from sqlalchemy import select
+from sqlalchemy import select, func
 from reflebot.core.utils.exceptions import ModelAlreadyExistsError
 from reflebot.settings import settings
 from ..datetime_utils import calculate_lection_deadline
@@ -56,6 +56,14 @@ class CourseServiceProtocol(Protocol):
 
     async def get_by_join_code(self, join_code: str) -> CourseSessionReadSchema:
         """Получить курс по коду."""
+        ...
+
+    async def delete_lections_from_course(
+        self,
+        course_id: uuid.UUID,
+        lection_ids: list[uuid.UUID],
+    ) -> int:
+        """Удалить выбранные лекции курса и пересчитать границы курса."""
         ...
     
     async def get_courses_for_admin(
@@ -220,6 +228,46 @@ class CourseService(CourseServiceProtocol):
     async def get_by_join_code(self, join_code: str) -> CourseSessionReadSchema:
         """Получить курс по коду."""
         return await self.course_repository.get_by_join_code(join_code)
+
+    async def delete_lections_from_course(
+        self,
+        course_id: uuid.UUID,
+        lection_ids: list[uuid.UUID],
+    ) -> int:
+        """Удалить выбранные лекции курса и пересчитать границы курса."""
+        if not lection_ids:
+            return 0
+
+        async with self.lection_repository.session as s, s.begin():
+            delete_stmt = sa.delete(LectionSession).where(
+                LectionSession.course_session_id == course_id,
+                LectionSession.id.in_(lection_ids),
+            )
+            delete_result = await s.execute(delete_stmt)
+            deleted_count = int(delete_result.rowcount or 0)
+
+        course = await self.course_repository.get(course_id)
+        async with self.lection_repository.session as s:
+            bounds_stmt = select(
+                func.min(LectionSession.started_at),
+                func.max(LectionSession.ended_at),
+            ).where(
+                LectionSession.course_session_id == course_id,
+            )
+            min_started_at, max_ended_at = (await s.execute(bounds_stmt)).one()
+
+        if min_started_at is not None and max_ended_at is not None:
+            await self.course_repository.update(
+                CourseSessionUpdateSchema(
+                    id=course.id,
+                    name=course.name,
+                    join_code=course.join_code,
+                    started_at=min_started_at,
+                    ended_at=max_ended_at,
+                )
+            )
+
+        return deleted_count
     
     async def get_courses_for_admin(
         self, 

@@ -123,6 +123,16 @@ class Question(Base, TimestampMixin):
         index=True
     )
     question_text: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    question_pool_index: Mapped[int] = mapped_column(
+        sa.Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    question_pool_questions_to_ask_count: Mapped[int | None] = mapped_column(
+        sa.Integer,
+        nullable=True,
+    )
 
     # Relationships
     lection_session: Mapped["LectionSession"] = relationship(back_populates="questions")
@@ -148,7 +158,7 @@ class Student(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     full_name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
-    telegram_username: Mapped[str] = mapped_column(sa.String(100), nullable=False)
+    telegram_username: Mapped[str] = mapped_column(sa.String(100), nullable=False, unique=True)
     telegram_id: Mapped[int | None] = mapped_column(sa.BigInteger, nullable=True, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(sa.Boolean, default=True, nullable=False)
 
@@ -253,7 +263,7 @@ class Teacher(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     full_name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
-    telegram_username: Mapped[str] = mapped_column(sa.String(100), nullable=False)
+    telegram_username: Mapped[str] = mapped_column(sa.String(100), nullable=False, unique=True)
     telegram_id: Mapped[int | None] = mapped_column(sa.BigInteger, nullable=True, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(sa.Boolean, default=True, nullable=False)
 
@@ -554,6 +564,6 @@ class Admin(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     full_name: Mapped[str] = mapped_column(sa.String(255), nullable=False)
-    telegram_username: Mapped[str] = mapped_column(sa.String(100), nullable=False)
+    telegram_username: Mapped[str] = mapped_column(sa.String(100), nullable=False, unique=True)
     telegram_id: Mapped[int | None] = mapped_column(sa.BigInteger, nullable=True, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(sa.Boolean, default=True, nullable=False)

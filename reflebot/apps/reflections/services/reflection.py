@@ -355,9 +355,51 @@ class ReflectionWorkflowService(ReflectionWorkflowServiceProtocol):
         """Выбрать уникальный набор вопросов для конкретного студента."""
         if not questions:
             return []
+        if ReflectionWorkflowService._has_question_pool_metadata(questions):
+            return ReflectionWorkflowService._select_questions_from_pools(questions)
         if questions_to_ask_count is None or questions_to_ask_count >= len(questions):
             return list(questions)
         return list(random.sample(list(questions), k=questions_to_ask_count))
+
+    @staticmethod
+    def _has_question_pool_metadata(questions: list[Any]) -> bool:
+        """Есть ли у вопросов метаданные пулов."""
+        return any(
+            getattr(question, "question_pool_index", 0) != 0
+            or getattr(question, "question_pool_questions_to_ask_count", None) is not None
+            for question in questions
+        )
+
+    @staticmethod
+    def _select_questions_from_pools(questions: list[Any]) -> list[Any]:
+        """Выбрать вопросы отдельно из каждого пула."""
+        grouped_questions: dict[int, list[Any]] = {}
+        pool_counts: dict[int, int | None] = {}
+
+        for question in questions:
+            pool_index = int(getattr(question, "question_pool_index", 0) or 0)
+            grouped_questions.setdefault(pool_index, []).append(question)
+            if pool_index not in pool_counts:
+                pool_counts[pool_index] = getattr(
+                    question,
+                    "question_pool_questions_to_ask_count",
+                    None,
+                )
+
+        selected_questions: list[Any] = []
+        for pool_index in sorted(grouped_questions):
+            pool_questions = grouped_questions[pool_index]
+            questions_to_ask_count = pool_counts.get(pool_index)
+            if (
+                questions_to_ask_count is None
+                or questions_to_ask_count >= len(pool_questions)
+            ):
+                selected_questions.extend(pool_questions)
+                continue
+            selected_questions.extend(
+                random.sample(list(pool_questions), k=questions_to_ask_count)
+            )
+        return selected_questions
 
     @staticmethod
     def _parse_datetime(value: str | datetime) -> datetime:

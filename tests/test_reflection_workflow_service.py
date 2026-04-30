@@ -36,12 +36,18 @@ def create_lection(topic: str = "Лекция") -> LectionSessionReadSchema:
     )
 
 
-def create_question(text: str = "Вопрос?") -> QuestionReadSchema:
+def create_question(
+    text: str = "Вопрос?",
+    question_pool_index: int = 0,
+    question_pool_questions_to_ask_count: int | None = None,
+) -> QuestionReadSchema:
     now = datetime.now(timezone.utc)
     return QuestionReadSchema(
         id=uuid.uuid4(),
         lection_session_id=uuid.uuid4(),
         question_text=text,
+        question_pool_index=question_pool_index,
+        question_pool_questions_to_ask_count=question_pool_questions_to_ask_count,
         created_at=now,
         updated_at=now,
     )
@@ -102,6 +108,48 @@ async def test_start_workflow_selects_only_requested_number_of_questions():
     assert result["one_question_from_list"] is False
     assert result["questions_to_ask_count"] == 1
     assert len(result["questions"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_start_workflow_selects_questions_from_each_pool():
+    repository = AsyncMock()
+    lection = create_lection()
+    repository.get_lection_for_student.return_value = lection
+    repository.get_reflection_for_student.return_value = None
+    mandatory_question = create_question(
+        "Обязательный?",
+        question_pool_index=0,
+        question_pool_questions_to_ask_count=1,
+    )
+    random_question_1 = create_question(
+        "Случайный 1?",
+        question_pool_index=1,
+        question_pool_questions_to_ask_count=1,
+    )
+    random_question_2 = create_question(
+        "Случайный 2?",
+        question_pool_index=1,
+        question_pool_questions_to_ask_count=1,
+    )
+    repository.get_questions_for_lection.return_value = [
+        mandatory_question,
+        random_question_1,
+        random_question_2,
+    ]
+    service = ReflectionWorkflowService(repository)
+
+    result = await service.start_workflow(uuid.uuid4(), uuid.uuid4())
+
+    selected_ids = {question["id"] for question in result["questions"]}
+    assert str(mandatory_question.id) in selected_ids
+    assert len(result["questions"]) == 2
+    assert len(
+        {
+            str(random_question_1.id),
+            str(random_question_2.id),
+        }
+        & selected_ids
+    ) == 1
 
 
 @pytest.mark.asyncio

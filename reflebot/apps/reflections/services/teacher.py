@@ -29,6 +29,10 @@ class TeacherServiceProtocol(Protocol):
     async def get_by_telegram_id(self, telegram_id: int) -> TeacherReadSchema | None:
         """Получить преподавателя по telegram_id."""
         ...
+
+    async def get_by_telegram_username(self, telegram_username: str) -> TeacherReadSchema | None:
+        """Получить преподавателя по telegram_username."""
+        ...
     
     async def attach_to_course(
         self,
@@ -44,6 +48,18 @@ class TeacherServiceProtocol(Protocol):
         lection_ids: list[uuid.UUID],
     ) -> None:
         """Привязать преподавателя к лекциям с использованием bulk_create."""
+        ...
+
+    async def is_attached_to_course(
+        self,
+        teacher_id: uuid.UUID,
+        course_id: uuid.UUID,
+    ) -> bool:
+        """Проверить, привязан ли преподаватель к курсу."""
+        ...
+
+    async def get_teacher_ids_by_course(self, course_id: uuid.UUID) -> list[uuid.UUID]:
+        """Получить идентификаторы преподавателей курса."""
         ...
 
 
@@ -120,6 +136,10 @@ class TeacherService(TeacherServiceProtocol):
     async def get_by_telegram_id(self, telegram_id: int) -> TeacherReadSchema | None:
         """Получить преподавателя по telegram_id."""
         return await self.teacher_repository.get_by_telegram_id(telegram_id)
+
+    async def get_by_telegram_username(self, telegram_username: str) -> TeacherReadSchema | None:
+        """Получить преподавателя по telegram_username."""
+        return await self.teacher_repository.get_by_telegram_username(telegram_username)
     
     async def attach_to_course(
         self,
@@ -141,6 +161,17 @@ class TeacherService(TeacherServiceProtocol):
         )
         
         await self.teacher_course_repository.create(teacher_course_data)
+
+    async def is_attached_to_course(
+        self,
+        teacher_id: uuid.UUID,
+        course_id: uuid.UUID,
+    ) -> bool:
+        """Проверить, привязан ли преподаватель к курсу."""
+        return await self.teacher_course_repository.exists_by_teacher_and_course(
+            teacher_id,
+            course_id,
+        )
     
     async def attach_to_lections(
         self,
@@ -168,3 +199,7 @@ class TeacherService(TeacherServiceProtocol):
         
         # Используем bulk_create для оптимизации
         await self.teacher_lection_repository.bulk_create(teacher_lection_schemas)
+
+    async def get_teacher_ids_by_course(self, course_id: uuid.UUID) -> list[uuid.UUID]:
+        """Получить идентификаторы преподавателей, привязанных к курсу."""
+        return await self.teacher_course_repository.get_teacher_ids_by_course(course_id)

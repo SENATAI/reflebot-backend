@@ -297,3 +297,81 @@ async def test_auth_service_unknown_username_requests_course_code():
             "telegram_id": 99,
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_auth_service_preserves_admin_role_by_telegram_id_when_student_found_by_username():
+    admin_repository = AsyncMock()
+    student_repository = AsyncMock()
+    teacher_repository = AsyncMock()
+    context_service = AsyncMock()
+    admin = create_admin().model_copy(update={"telegram_id": 99})
+    student = create_student()
+
+    admin_repository.get_by_telegram_username.side_effect = ModelFieldNotFoundException(
+        Admin,
+        "telegram_username",
+        "user",
+    )
+    admin_repository.get_by_telegram_id.return_value = admin
+    student_repository.get_by_telegram_username.return_value = student
+    student_repository.update_telegram_id.return_value = student.model_copy(update={"telegram_id": 99})
+    teacher_repository.get_by_telegram_username.return_value = None
+    teacher_repository.get_by_telegram_id.side_effect = ModelFieldNotFoundException(
+        Admin,
+        "telegram_id",
+        99,
+    )
+
+    service = build_auth_service(
+        admin_repository=admin_repository,
+        student_repository=student_repository,
+        teacher_repository=teacher_repository,
+        context_service=context_service,
+    )
+
+    response = await service.login_user("user", AdminLoginSchema(telegram_id=99))
+
+    assert response.is_admin is True
+    assert response.is_student is True
+    assert response.is_teacher is False
+    assert "👨‍💼 Администратор" in response.message
+    assert "👨‍🎓 Студент" in response.message
+
+
+@pytest.mark.asyncio
+async def test_auth_service_preserves_all_roles_by_telegram_id_when_username_lookup_misses():
+    admin_repository = AsyncMock()
+    student_repository = AsyncMock()
+    teacher_repository = AsyncMock()
+    context_service = AsyncMock()
+    admin = create_admin().model_copy(update={"telegram_id": 99})
+    student = create_student().model_copy(update={"telegram_id": 99})
+    teacher = create_teacher().model_copy(update={"telegram_id": 99})
+
+    admin_repository.get_by_telegram_username.side_effect = ModelFieldNotFoundException(
+        Admin,
+        "telegram_username",
+        "user",
+    )
+    admin_repository.get_by_telegram_id.return_value = admin
+    student_repository.get_by_telegram_username.return_value = None
+    student_repository.get_by_telegram_id.return_value = student
+    teacher_repository.get_by_telegram_username.return_value = None
+    teacher_repository.get_by_telegram_id.return_value = teacher
+
+    service = build_auth_service(
+        admin_repository=admin_repository,
+        student_repository=student_repository,
+        teacher_repository=teacher_repository,
+        context_service=context_service,
+    )
+
+    response = await service.login_user("user", AdminLoginSchema(telegram_id=99))
+
+    assert response.is_admin is True
+    assert response.is_student is True
+    assert response.is_teacher is True
+    assert "👨‍💼 Администратор" in response.message
+    assert "👨‍🎓 Студент" in response.message
+    assert "👨‍🏫 Преподаватель" in response.message

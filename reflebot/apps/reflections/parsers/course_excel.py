@@ -27,9 +27,11 @@ class CourseExcelParser(BaseFileParser):
         'Время': 'time',
         'Дата дедлайна': 'deadline_date',
         'Время дедлайна': 'deadline_time',
-        'Количество задаваемых вопросов': 'questions_to_ask_count',
-        'Вопросы': 'questions',
     }
+    COMMON_POOL_COUNT_HEADER = 'Количество общих вопросов'
+    COMMON_POOL_QUESTIONS_HEADER = 'Общие вопросы'
+    CUSTOM_POOL_COUNT_HEADER = 'Количество кастомных вопросов'
+    CUSTOM_POOL_QUESTIONS_HEADER = 'Кастомные вопросы'
     OPTIONAL_COLUMNS = {
         'Код курса': 'join_code',
     }
@@ -75,25 +77,66 @@ class CourseExcelParser(BaseFileParser):
             raise ExcelFileError("Worksheet не инициализирован")
         
         headers = []
-        for cell in worksheet[1]:
-            if cell.value:
-                headers.append(str(cell.value).strip())
+        header_positions: dict[str, list[int]] = {}
+        for index, cell in enumerate(worksheet[1]):
+            if cell.value is None:
+                continue
+            header = str(cell.value).strip()
+            if not header:
+                continue
+            headers.append(header)
+            header_positions.setdefault(header, []).append(index)
         
         if not headers:
             raise ExcelFileFormatError("Не найдены заголовки в первой строке")
         
-        # Проверяем наличие обязательных колонок
         column_mapping = {}
-        for required_col in self.REQUIRED_COLUMNS.keys():
-            if required_col not in headers:
+        for required_col, alias in self.REQUIRED_COLUMNS.items():
+            positions = header_positions.get(required_col, [])
+            if not positions:
                 raise ExcelFileMissingColumnError(required_col)
-            
-            # Сохраняем индекс колонки
-            column_mapping[self.REQUIRED_COLUMNS[required_col]] = headers.index(required_col)
+            column_mapping[alias] = positions[0]
 
         for optional_col, alias in self.OPTIONAL_COLUMNS.items():
-            if optional_col in headers:
-                column_mapping[alias] = headers.index(optional_col)
+            positions = header_positions.get(optional_col, [])
+            if positions:
+                column_mapping[alias] = positions[0]
+
+        common_count_positions = header_positions.get(self.COMMON_POOL_COUNT_HEADER, [])
+        common_questions_positions = header_positions.get(self.COMMON_POOL_QUESTIONS_HEADER, [])
+        if not common_count_positions:
+            raise ExcelFileMissingColumnError(self.COMMON_POOL_COUNT_HEADER)
+        if not common_questions_positions:
+            raise ExcelFileMissingColumnError(self.COMMON_POOL_QUESTIONS_HEADER)
+
+        custom_count_positions = header_positions.get(self.CUSTOM_POOL_COUNT_HEADER, [])
+        custom_questions_positions = header_positions.get(self.CUSTOM_POOL_QUESTIONS_HEADER, [])
+        if len(custom_count_positions) != len(custom_questions_positions):
+            raise ExcelFileFormatError(
+                "Количество колонок 'Кастомные вопросы' должно совпадать с количеством колонок "
+                "'Количество кастомных вопросов'."
+            )
+
+        column_mapping["question_pools"] = [
+            {
+                "questions_index": common_questions_positions[0],
+                "questions_to_ask_count_index": common_count_positions[0],
+                "pool_index": 0,
+                "label": self.COMMON_POOL_COUNT_HEADER,
+            }
+        ]
+        column_mapping["question_pools"].extend(
+            {
+                "questions_index": questions_index,
+                "questions_to_ask_count_index": count_index,
+                "pool_index": pool_index,
+                "label": self.CUSTOM_POOL_COUNT_HEADER,
+            }
+            for pool_index, (count_index, questions_index) in enumerate(
+                zip(custom_count_positions, custom_questions_positions, strict=True),
+                start=1,
+            )
+        )
 
         return column_mapping
     
@@ -136,8 +179,6 @@ class CourseExcelParser(BaseFileParser):
         deadline_date_value = row[column_mapping['deadline_date']]
         deadline_time_value = row[column_mapping['deadline_time']]
         join_code = self._extract_join_code(row, column_mapping)
-        questions_value = row[column_mapping['questions']]
-
         if not topic:
             raise ValueError("Тема лекции не может быть пустой")
         if join_code is not None:
@@ -146,10 +187,19 @@ class CourseExcelParser(BaseFileParser):
         started_at, ended_at = self._parse_datetime_values(date_value, time_value)
         deadline = self._parse_deadline_values(deadline_date_value, deadline_time_value)
 
-        questions = self._parse_questions(questions_value)
-        questions_to_ask_count = self._parse_questions_to_ask_count(
-            row[column_mapping['questions_to_ask_count']],
-            questions,
+        question_pools = self._parse_question_pools(
+            row,
+            column_mapping["question_pools"],
+        )
+        questions = [
+            question_text
+            for pool in question_pools
+            for question_text in pool["questions"]
+        ]
+        questions_to_ask_count = (
+            sum(pool["questions_to_ask_count"] for pool in question_pools)
+            if question_pools
+            else None
         )
 
         return {
@@ -160,6 +210,7 @@ class CourseExcelParser(BaseFileParser):
             'join_code': join_code,
             "questions": questions,
             "questions_to_ask_count": questions_to_ask_count,
+            "question_pools": question_pools,
         }
 
     def _parse_datetime_values(self, date_value, time_value: str) -> tuple[datetime, datetime]:
@@ -261,6 +312,7 @@ class CourseExcelParser(BaseFileParser):
     def _parse_questions_to_ask_count(
         raw_value,
         questions: list[str],
+        label: str,
     ) -> int | None:
         """Распарсить количество вопросов, которое нужно задать студенту."""
         total_questions = len(questions)
@@ -272,22 +324,47 @@ class CourseExcelParser(BaseFileParser):
             if total_questions == 1:
                 return 1
             raise ValueError(
-                "Для нескольких вопросов нужно заполнить поле 'Количество задаваемых вопросов'."
+                f"Для нескольких вопросов нужно заполнить поле '{label}'."
             )
 
         try:
             parsed_value = int(float(normalized))
         except ValueError as exc:
             raise ValueError(
-                "Поле 'Количество задаваемых вопросов' должно содержать целое число."
+                f"Поле '{label}' должно содержать целое число."
             ) from exc
 
         if parsed_value < 1:
             raise ValueError(
-                "Поле 'Количество задаваемых вопросов' должно быть больше нуля."
+                f"Поле '{label}' должно быть больше нуля."
             )
         if parsed_value > total_questions:
             raise ValueError(
-                "Количество задаваемых вопросов больше, чем число вопросов в лекции."
+                f"Поле '{label}' больше, чем число вопросов в соответствующем пуле."
             )
         return parsed_value
+
+    def _parse_question_pools(
+        self,
+        row: tuple,
+        pool_mappings: list[dict[str, int]],
+    ) -> list[dict]:
+        """Распарсить несколько пулов вопросов из повторяющихся колонок."""
+        pools: list[dict] = []
+        for pool_mapping in pool_mappings:
+            questions = self._parse_questions(row[pool_mapping["questions_index"]])
+            questions_to_ask_count = self._parse_questions_to_ask_count(
+                row[pool_mapping["questions_to_ask_count_index"]],
+                questions,
+                str(pool_mapping["label"]),
+            )
+            if not questions and questions_to_ask_count is None:
+                continue
+            pools.append(
+                {
+                    "pool_index": pool_mapping["pool_index"],
+                    "questions": questions,
+                    "questions_to_ask_count": questions_to_ask_count,
+                }
+            )
+        return pools

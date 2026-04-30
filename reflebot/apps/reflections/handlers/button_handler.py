@@ -217,6 +217,12 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                 )
             if base_action == TelegramButtons.COURSE_APPEND_LECTIONS:
                 return await self._start_append_course_lections(telegram_id, roles, context_data)
+            if base_action == TelegramButtons.COURSE_CONFIRM_APPEND:
+                return await self._confirm_appended_course_lections(
+                    telegram_id,
+                    roles,
+                    context_data,
+                )
             if base_action == TelegramButtons.COURSE_SEND_ALERT:
                 return await self.render_course_alert_lections(
                     telegram_id,
@@ -249,6 +255,11 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                     uuid.UUID(str(context_data["course_id"])),
                     page=1,
                     push_navigation=True,
+                    extra_data={
+                        key: value
+                        for key, value in context_data.items()
+                        if key not in {"course_id", "page"}
+                    },
                 )
             if base_action == TelegramButtons.COURSE_ADD_DEFAULT_QUESTIONS:
                 return await self._add_default_questions_to_course(telegram_id, roles, context_data)
@@ -408,17 +419,21 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         course_id: uuid.UUID,
         page: int,
         push_navigation: bool = False,
+        extra_data: dict | None = None,
     ) -> ActionResponseSchema:
         """Показать список спаршенных лекций с пагинацией."""
         if push_navigation:
             await self.context_service.push_navigation(telegram_id, "parsed_lections")
         course = await self.course_service.get_by_id(course_id)
         response = await self.lection_service.get_lections_by_course(course_id=course_id, page=page, page_size=5)
+        context_data = {"course_id": str(course_id), "page": page}
+        if extra_data:
+            context_data.update(extra_data)
         await self.context_service.set_context(
             telegram_id,
             action="parsed_lections",
             step="view",
-            data={"course_id": str(course_id), "page": page},
+            data=context_data,
         )
         buttons = [
             TelegramButtonSchema(text=button.text, action=button.action)
@@ -432,6 +447,50 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         return ActionResponseSchema(
             message=TelegramMessages.get_parsed_lections_title(course.name),
             buttons=buttons,
+        )
+
+    async def render_append_course_menu(
+        self,
+        telegram_id: int,
+        course_id: uuid.UUID,
+        page: int,
+        appended_lection_ids: list[str],
+        message_prefix: str | None = None,
+        push_navigation: bool = False,
+    ) -> ActionResponseSchema:
+        """Показать экран подтверждения догруженных лекций."""
+        if push_navigation:
+            await self.context_service.push_navigation(telegram_id, "append_course_menu")
+        course = await self.course_service.get_by_id(course_id)
+        await self.context_service.set_context(
+            telegram_id,
+            action="append_course_menu",
+            step="view",
+            data={
+                "course_id": str(course_id),
+                "page": page,
+                "appended_lection_ids": appended_lection_ids,
+            },
+        )
+        show_add_default_questions = await self._lections_have_missing_questions(
+            [uuid.UUID(lection_id) for lection_id in appended_lection_ids]
+        )
+        message = TelegramMessages.get_append_course_preview(
+            course.name,
+            course.started_at,
+            course.ended_at,
+        )
+        if message_prefix:
+            separator = "" if message_prefix.endswith("\n\n") else "\n\n"
+            message = f"{message_prefix}{separator}{message}"
+        return ActionResponseSchema(
+            message=message,
+            buttons=[
+                TelegramButtonSchema(text=button.text, action=button.action)
+                for button in TelegramButtons.get_append_course_menu_buttons(
+                    show_add_default_questions=show_add_default_questions,
+                )
+            ],
         )
 
     async def render_lection_details(
@@ -665,7 +724,11 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
             telegram_id,
             action="admin_course_details",
             step="view",
-            data={"course_id": str(course_id), "page": page},
+            data={
+                "course_id": str(course_id),
+                "page": page,
+                "course_flow": "existing_course",
+            },
         )
         return ActionResponseSchema(
             message=message_prefix + TelegramMessages.get_admin_course_info(
@@ -836,7 +899,11 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
             current_admin=roles.admin,
             current_teacher=roles.teacher,
         )
-        pagination = self.pagination_service.paginate(statistics.students_with_reflections, page, 5)
+        sorted_students = sorted(
+            statistics.students_with_reflections,
+            key=lambda student: (student.full_name.casefold(), str(student.id)),
+        )
+        pagination = self.pagination_service.paginate(sorted_students, page, 5)
         await self.context_service.set_context(
             telegram_id,
             action="analytics_lection_statistics",
@@ -1494,6 +1561,50 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
             awaiting_input=True,
         )
 
+    async def _confirm_appended_course_lections(
+        self,
+        telegram_id: int,
+        roles: ResolvedRoles,
+        context_data: dict,
+    ) -> ActionResponseSchema:
+        """Подтвердить догрузку новых лекций и привязать их к участникам курса."""
+        self._require_roles_admin(roles)
+        course_id = uuid.UUID(str(context_data["course_id"]))
+        appended_lection_ids = [
+            uuid.UUID(str(lection_id))
+            for lection_id in context_data.get("appended_lection_ids", [])
+        ]
+        if not appended_lection_ids:
+            return await self.render_admin_course_details(
+                telegram_id,
+                course_id,
+                page=int(context_data.get("page", 1)),
+            )
+
+        students_response = await self.student_service.get_students_by_course(
+            course_id=course_id,
+            page=1,
+            page_size=10_000,
+        )
+        await self.student_service.attach_to_lections(
+            student_ids=[student.id for student in students_response["items"]],
+            lection_ids=appended_lection_ids,
+        )
+        teacher_ids = await self.teacher_service.get_teacher_ids_by_course(course_id)
+        for teacher_id in teacher_ids:
+            await self.teacher_service.attach_to_lections(
+                teacher_id=teacher_id,
+                lection_ids=appended_lection_ids,
+            )
+
+        await self.context_service.clear_context(telegram_id)
+        return await self.render_admin_course_details(
+            telegram_id,
+            course_id,
+            page=int(context_data.get("page", 1)),
+            message_prefix=TelegramMessages.get_course_appended_success(len(appended_lection_ids)),
+        )
+
     async def _start_course_broadcast_message(
         self,
         telegram_id: int,
@@ -1554,11 +1665,13 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
     async def _start_attach_teacher(self, telegram_id: int, roles: ResolvedRoles, context_data: dict) -> ActionResponseSchema:
         self._require_roles_admin(roles)
         await self.context_service.push_navigation(telegram_id, self.ATTACH_TEACHER_FULLNAME_SCREEN)
+        next_context_data = dict(context_data)
+        next_context_data.pop("fullname", None)
         await self.context_service.set_context(
             telegram_id,
             action="attach_teacher",
             step="awaiting_fullname",
-            data={"course_id": context_data["course_id"]},
+            data=next_context_data,
         )
         return ActionResponseSchema(
             message=TelegramMessages.get_attach_teacher_request_fullname(),
@@ -1590,13 +1703,25 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
     ) -> ActionResponseSchema:
         self._require_roles_admin(roles)
         course_id = uuid.UUID(str(context_data["course_id"]))
-        lection_ids = await self.lection_service.get_lection_ids_by_course(course_id)
+        appended_lection_ids = [
+            uuid.UUID(str(lection_id))
+            for lection_id in context_data.get("appended_lection_ids", [])
+        ]
+        lection_ids = appended_lection_ids or await self.lection_service.get_lection_ids_by_course(course_id)
         for lection_id in lection_ids:
             existing_questions = await self.question_service.get_questions_by_lection(lection_id)
             if existing_questions:
                 continue
             question_text = await self.default_question_service.get_random_question_text()
             await self.question_service.create_question(lection_id, question_text)
+        if appended_lection_ids:
+            return await self.render_append_course_menu(
+                telegram_id,
+                course_id,
+                page=int(context_data.get("page", 1)),
+                appended_lection_ids=[str(lection_id) for lection_id in appended_lection_ids],
+                message_prefix=TelegramMessages.get_default_questions_added(),
+            )
         await self.context_service.set_context(
             telegram_id,
             action="course_menu",
@@ -1637,6 +1762,10 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
     async def _course_has_lections_without_questions(self, course_id: uuid.UUID) -> bool:
         """Проверить, есть ли у курса лекции без вопросов."""
         lection_ids = await self.lection_service.get_lection_ids_by_course(course_id)
+        return await self._lections_have_missing_questions(lection_ids)
+
+    async def _lections_have_missing_questions(self, lection_ids: list[uuid.UUID]) -> bool:
+        """Проверить, есть ли среди переданных лекций лекции без вопросов."""
         for lection_id in lection_ids:
             questions = await self.question_service.get_questions_by_lection(lection_id)
             if not questions:
@@ -1645,6 +1774,22 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
 
     async def _cancel_course(self, telegram_id: int, roles: ResolvedRoles, context_data: dict) -> ActionResponseSchema:
         self._require_roles_admin(roles)
+        appended_lection_ids = [
+            uuid.UUID(str(lection_id))
+            for lection_id in context_data.get("appended_lection_ids", [])
+        ]
+        if appended_lection_ids:
+            deleted_count = await self.course_service.delete_lections_from_course(
+                uuid.UUID(str(context_data["course_id"])),
+                appended_lection_ids,
+            )
+            await self.context_service.clear_context(telegram_id)
+            return await self.render_admin_course_details(
+                telegram_id,
+                uuid.UUID(str(context_data["course_id"])),
+                page=int(context_data.get("page", 1)),
+                message_prefix=TelegramMessages.get_course_append_cancelled(deleted_count),
+            )
         await self.course_service.delete_course(uuid.UUID(str(context_data["course_id"])))
         await self.context_service.clear_context(telegram_id)
         return await self.build_main_menu_response(
@@ -1842,7 +1987,16 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         page = max(1, int(data.get("page", 1)) + delta)
         action = context.get("action")
         if action == "parsed_lections":
-            return await self.render_parsed_lections(telegram_id, uuid.UUID(str(data["course_id"])), page)
+            return await self.render_parsed_lections(
+                telegram_id,
+                uuid.UUID(str(data["course_id"])),
+                page,
+                extra_data={
+                    key: value
+                    for key, value in data.items()
+                    if key not in {"course_id", "page"}
+                },
+            )
         if action == "course_alert_lections":
             return await self.render_course_alert_lections(
                 telegram_id,
@@ -1920,8 +2074,24 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
         data = context.get("data", {})
         if previous_screen == "course_menu":
             return await self.render_course_menu(telegram_id, uuid.UUID(str(data["course_id"])))
+        if previous_screen == "append_course_menu":
+            return await self.render_append_course_menu(
+                telegram_id,
+                uuid.UUID(str(data["course_id"])),
+                int(data.get("page", 1)),
+                list(data.get("appended_lection_ids", [])),
+            )
         if previous_screen == "parsed_lections":
-            return await self.render_parsed_lections(telegram_id, uuid.UUID(str(data["course_id"])), int(data.get("page", 1)))
+            return await self.render_parsed_lections(
+                telegram_id,
+                uuid.UUID(str(data["course_id"])),
+                int(data.get("page", 1)),
+                extra_data={
+                    key: value
+                    for key, value in data.items()
+                    if key not in {"course_id", "page"}
+                },
+            )
         if previous_screen == "course_alert_lections":
             return await self.render_course_alert_lections(
                 telegram_id,
@@ -1960,11 +2130,13 @@ class ButtonActionHandler(BaseHandler, ButtonActionHandlerProtocol):
                 awaiting_input=True,
             )
         if previous_screen == self.ATTACH_TEACHER_FULLNAME_SCREEN:
+            restored_data = dict(data)
+            restored_data.pop("fullname", None)
             await self.context_service.set_context(
                 telegram_id,
                 action="attach_teacher",
                 step="awaiting_fullname",
-                data={"course_id": data["course_id"]},
+                data=restored_data,
             )
             return ActionResponseSchema(
                 message=TelegramMessages.get_attach_teacher_request_fullname(),

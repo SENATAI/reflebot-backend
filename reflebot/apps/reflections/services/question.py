@@ -28,7 +28,13 @@ class QuestionServiceProtocol(Protocol):
         """Получить вопрос по идентификатору."""
         ...
     
-    async def create_question(self, lection_id: uuid.UUID, text: str) -> QuestionReadSchema:
+    async def create_question(
+        self,
+        lection_id: uuid.UUID,
+        text: str,
+        question_pool_index: int = 0,
+        question_pool_questions_to_ask_count: int | None = None,
+    ) -> QuestionReadSchema:
         """Создать вопрос для лекции."""
         ...
     
@@ -67,7 +73,7 @@ class QuestionService(QuestionServiceProtocol):
             questions = result.scalars().all()
             
             return [
-                QuestionReadSchema.model_validate(question, from_attributes=True)
+                self._to_read_schema(question)
                 for question in questions
             ]
 
@@ -75,7 +81,13 @@ class QuestionService(QuestionServiceProtocol):
         """Получить вопрос по идентификатору."""
         return await self.question_repository.get(question_id)
     
-    async def create_question(self, lection_id: uuid.UUID, text: str) -> QuestionReadSchema:
+    async def create_question(
+        self,
+        lection_id: uuid.UUID,
+        text: str,
+        question_pool_index: int = 0,
+        question_pool_questions_to_ask_count: int | None = None,
+    ) -> QuestionReadSchema:
         """
         Создать вопрос для лекции.
         
@@ -89,6 +101,8 @@ class QuestionService(QuestionServiceProtocol):
         create_data = QuestionCreateSchema(
             lection_session_id=lection_id,
             question_text=text,
+            question_pool_index=question_pool_index,
+            question_pool_questions_to_ask_count=question_pool_questions_to_ask_count,
         )
         return await self.question_repository.create(create_data)
     
@@ -121,3 +135,28 @@ class QuestionService(QuestionServiceProtocol):
             question_id: ID вопроса
         """
         await self.question_repository.delete(question_id)
+
+    @staticmethod
+    def _to_read_schema(question: Question) -> QuestionReadSchema:
+        """Преобразовать ORM-модель вопроса в read-schema с safe fallback для legacy моков."""
+        pool_index = getattr(question, "question_pool_index", 0)
+        if not isinstance(pool_index, int):
+            pool_index = 0
+
+        pool_questions_to_ask_count = getattr(
+            question,
+            "question_pool_questions_to_ask_count",
+            None,
+        )
+        if not isinstance(pool_questions_to_ask_count, int):
+            pool_questions_to_ask_count = None
+
+        return QuestionReadSchema(
+            id=question.id,
+            lection_session_id=question.lection_session_id,
+            question_text=question.question_text,
+            question_pool_index=pool_index,
+            question_pool_questions_to_ask_count=pool_questions_to_ask_count,
+            created_at=question.created_at,
+            updated_at=question.updated_at,
+        )

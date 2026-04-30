@@ -179,8 +179,23 @@ class TelegramMessages:
         return (
             f"✅ Курс успешно догружен.\n"
             f"Добавлено лекций: {lections_count}\n"
-            "Новые лекции уже привязаны к записанным студентам.\n\n"
+            "Новые лекции привязаны к записанным студентам и преподавателям.\n\n"
         )
+
+    @staticmethod
+    def get_append_course_preview(
+        course_name: str,
+        started_at: datetime,
+        ended_at: datetime,
+    ) -> str:
+        """Сообщение-превью после загрузки новых лекций в курс."""
+        return f"""📥 Новые лекции загружены в черновик догрузки.
+
+📚 <b>{course_name}</b>
+📅 Начало: {TelegramMessages._format_date(started_at)}
+📅 Окончание: {TelegramMessages._format_date(ended_at)}
+
+Проверьте лекции и выберите, что делать дальше:"""
 
     @staticmethod
     def get_course_broadcast_success(sent_count: int) -> str:
@@ -217,6 +232,14 @@ class TelegramMessages:
     def get_course_cancelled() -> str:
         """Сообщение об отмене парсинга курса."""
         return "❌ Парсинг курса отменён. Курс и все лекции удалены."
+
+    @staticmethod
+    def get_course_append_cancelled(lections_count: int) -> str:
+        """Сообщение об отмене догрузки новых лекций."""
+        return (
+            "❌ Догрузка курса отменена.\n"
+            f"Удалено новых лекций: {lections_count}\n\n"
+        )
 
     @staticmethod
     def get_default_questions_added() -> str:
@@ -370,8 +393,9 @@ class TelegramMessages:
         return (
             "Здравствуйте! Отправьте рефлексию по лекции:\n"
             f"<b>{lection_topic}</b>."
-            f"{deadline_block}\n"
-            "👇 Нажмите кнопку ниже, чтобы начать запись кружка рефлексии!"
+            f"{deadline_block}\n\n"
+            "👇 Нажмите кнопку ниже, чтобы начать запись кружка рефлексии. "
+            "После записи рефлексии придут вопросы!"
         )
 
     @staticmethod
@@ -507,7 +531,11 @@ class TelegramMessages:
     @staticmethod
     def get_student_course_registered(course_name: str) -> str:
         """Сообщение об успешной записи студента на курс."""
-        return f"Вы успешно записались на курс: <b>{course_name}</b>. \n\nТеперь осталось дождаться уведомления о завершении первой лекции — и можно будет отправить рефлексию."
+        return (
+            f"Вы успешно записались на курс: <b>{course_name}</b>. \n\n"
+            "Теперь осталось дождаться уведомления о завершении первых лекций — "
+            "и можно будет отправить рефлексию."
+        )
 
     @staticmethod
     def get_student_course_already_registered() -> str:
@@ -555,6 +583,11 @@ class TelegramMessages:
     def get_teacher_attached(teacher_name: str) -> str:
         """Сообщение об успешной привязке преподавателя."""
         return f"✅ Преподаватель {teacher_name} успешно добавлен к курсу!"
+
+    @staticmethod
+    def get_teacher_already_attached(teacher_name: str) -> str:
+        """Сообщение, если преподаватель уже привязан к курсу."""
+        return f"⚠️ Преподаватель {teacher_name} уже привязан к этому курсу."
     
     # Сообщения для привязки студентов
     
