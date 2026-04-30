@@ -3,6 +3,7 @@
 """
 
 from typing import Protocol
+from reflebot.core.utils.exceptions import ModelFieldNotFoundException
 
 from ..repositories.course import CourseSessionRepositoryProtocol
 from ..repositories.admin import AdminRepositoryProtocol
@@ -56,6 +57,27 @@ class AuthService(AuthServiceProtocol):
         self.student_service = student_service
         self.lection_service = lection_service
         self.course_invite_service = course_invite_service
+
+    async def _get_admin_by_telegram_id(self, telegram_id: int) -> AdminReadSchema | None:
+        """Безопасно получить администратора по telegram_id."""
+        try:
+            admin = await self.admin_repository.get_by_telegram_id(telegram_id)
+        except ModelFieldNotFoundException:
+            return None
+        return admin if isinstance(admin, AdminReadSchema) else None
+
+    async def _get_teacher_by_telegram_id(self, telegram_id: int) -> TeacherReadSchema | None:
+        """Безопасно получить преподавателя по telegram_id."""
+        try:
+            teacher = await self.teacher_repository.get_by_telegram_id(telegram_id)
+        except ModelFieldNotFoundException:
+            return None
+        return teacher if isinstance(teacher, TeacherReadSchema) else None
+
+    async def _get_student_by_telegram_id(self, telegram_id: int) -> StudentReadSchema | None:
+        """Безопасно получить студента по telegram_id."""
+        student = await self.student_repository.get_by_telegram_id(telegram_id)
+        return student if isinstance(student, StudentReadSchema) else None
     
     async def login_user(
         self, telegram_username: str, login_data: AdminLoginSchema
@@ -79,8 +101,8 @@ class AuthService(AuthServiceProtocol):
                 admin = await self.admin_repository.update_telegram_id(
                     telegram_username, telegram_id
                 )
-        except Exception:
-            pass
+        except ModelFieldNotFoundException:
+            admin = await self._get_admin_by_telegram_id(telegram_id)
         
         # Проверяем студента
         student_found = await self.student_repository.get_by_telegram_username(telegram_username)
@@ -88,6 +110,8 @@ class AuthService(AuthServiceProtocol):
             student = await self.student_repository.update_telegram_id(
                 telegram_username, telegram_id
             )
+        else:
+            student = await self._get_student_by_telegram_id(telegram_id)
         
         # Проверяем преподавателя
         teacher_found = await self.teacher_repository.get_by_telegram_username(telegram_username)
@@ -95,6 +119,8 @@ class AuthService(AuthServiceProtocol):
             teacher = await self.teacher_repository.update_telegram_id(
                 telegram_username, telegram_id
             )
+        else:
+            teacher = await self._get_teacher_by_telegram_id(telegram_id)
         
         # Если не найден ни в одной таблице
         if not admin and not student and not teacher:

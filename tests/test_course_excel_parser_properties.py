@@ -28,8 +28,8 @@ COURSE_HEADERS = [
     'Дата дедлайна',
     'Время дедлайна',
     'Код курса',
-    'Количество задаваемых вопросов',
-    'Вопросы',
+    'Количество общих вопросов',
+    'Общие вопросы',
 ]
 
 
@@ -76,6 +76,59 @@ def create_excel_file(headers: list[str], rows: list[list]) -> io.BytesIO:
     return output
 
 
+def test_parser_supports_multiple_question_pools():
+    parser = CourseExcelParser()
+    headers = [
+        "Тема лекции",
+        "Дата",
+        "Время",
+        "Дата дедлайна",
+        "Время дедлайна",
+        "Код курса",
+        "Количество общих вопросов",
+        "Общие вопросы",
+        "Количество кастомных вопросов",
+        "Кастомные вопросы",
+    ]
+    rows = [
+        [
+            "Лекция 1",
+            "2026-05-01",
+            "10:00-11:00",
+            "2026-05-02",
+            "23:59",
+            "ABCD",
+            "2",
+            "- Обязательный 1\n- Обязательный 2",
+            "1",
+            "- Случайный 1\n- Случайный 2",
+        ]
+    ]
+
+    lections = parser.parse(create_excel_file(headers, rows))
+
+    assert len(lections) == 1
+    assert lections[0]["questions_to_ask_count"] == 3
+    assert lections[0]["questions"] == [
+        "Обязательный 1",
+        "Обязательный 2",
+        "Случайный 1",
+        "Случайный 2",
+    ]
+    assert lections[0]["question_pools"] == [
+        {
+            "pool_index": 0,
+            "questions": ["Обязательный 1", "Обязательный 2"],
+            "questions_to_ask_count": 2,
+        },
+        {
+            "pool_index": 1,
+            "questions": ["Случайный 1", "Случайный 2"],
+            "questions_to_ask_count": 1,
+        },
+    ]
+
+
 # Property 9: Excel Parser Column Validation
 # **Validates: Requirements 6.2, 6.6**
 
@@ -88,8 +141,8 @@ def create_excel_file(headers: list[str], rows: list[list]) -> io.BytesIO:
             'Время',
             'Дата дедлайна',
             'Время дедлайна',
-            'Количество задаваемых вопросов',
-            'Вопросы',
+            'Количество общих вопросов',
+            'Общие вопросы',
         ]
     ),
     extra_columns=st.lists(
@@ -125,8 +178,8 @@ def test_property_9_excel_parser_missing_column_validation(
         'Время',
         'Дата дедлайна',
         'Время дедлайна',
-        'Количество задаваемых вопросов',
-        'Вопросы',
+        'Количество общих вопросов',
+        'Общие вопросы',
     ]
     headers = [col for col in required_columns if col != missing_column]
     
@@ -576,8 +629,8 @@ def test_parser_allows_missing_join_code_column_and_returns_none():
         'Время',
         'Дата дедлайна',
         'Время дедлайна',
-        'Количество задаваемых вопросов',
-        'Вопросы',
+        'Количество общих вопросов',
+        'Общие вопросы',
     ]
     rows = [[
         'Test Lection',
@@ -684,7 +737,7 @@ def test_parser_requires_questions_count_for_multiple_questions():
             )
         )
 
-    assert "Количество задаваемых вопросов" in str(exc_info.value.detail)
+    assert "Количество общих вопросов" in str(exc_info.value.detail)
 
 
 def test_parser_rejects_questions_count_greater_than_total_questions():

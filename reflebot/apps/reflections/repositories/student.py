@@ -36,14 +36,31 @@ class StudentRepository(
     StudentRepositoryProtocol,
 ):
     """Репозиторий для работы со студентами."""
+
+    async def _get_preferred_model_by_telegram_username(
+        self,
+        session: AsyncSession,
+        telegram_username: str,
+    ) -> Student | None:
+        """Получить предпочтительную запись по username при наличии дублей."""
+        stmt = (
+            sa.select(self.model_type)
+            .where(self.model_type.telegram_username == telegram_username)
+            .order_by(
+                sa.case(
+                    (self.model_type.telegram_id.is_not(None), 0),
+                    else_=1,
+                ),
+                self.model_type.created_at.asc(),
+                self.model_type.id.asc(),
+            )
+        )
+        return (await session.execute(stmt)).scalars().first()
     
     async def get_by_telegram_username(self, telegram_username: str) -> StudentReadSchema | None:
         """Получить студента по никнейму в Telegram."""
         async with self.session as s:
-            stmt = sa.select(self.model_type).where(
-                self.model_type.telegram_username == telegram_username
-            )
-            result = (await s.execute(stmt)).scalar_one_or_none()
+            result = await self._get_preferred_model_by_telegram_username(s, telegram_username)
             if not result:
                 return None
             return self.read_schema_type.model_validate(result, from_attributes=True)
@@ -53,17 +70,13 @@ class StudentRepository(
     ) -> StudentReadSchema:
         """Обновить telegram_id студента по никнейму."""
         async with self.session as s, s.begin():
-            stmt = (
-                sa.update(self.model_type)
-                .where(self.model_type.telegram_username == telegram_username)
-                .values(telegram_id=telegram_id)
-                .returning(self.model_type)
-            )
-            result = (await s.execute(stmt)).scalar_one_or_none()
+            result = await self._get_preferred_model_by_telegram_username(s, telegram_username)
             if not result:
                 raise ModelFieldNotFoundException(
                     self.model_type, "telegram_username", telegram_username
                 )
+            result.telegram_id = telegram_id
+            await s.flush()
             return self.read_schema_type.model_validate(result, from_attributes=True)
 
     async def get_by_telegram_id(self, telegram_id: int) -> StudentReadSchema | None:

@@ -369,9 +369,8 @@ async def test_get_students_by_course(
     student_id_1 = uuid.uuid4()
     student_id_2 = uuid.uuid4()
     
-    # Мокируем paginate
-    paginated_result = MagicMock()
-    paginated_result.items = [
+    # Мокируем привязки студентов к курсу
+    mock_student_course_repository.get_all.return_value = [
         StudentCourseReadSchema(
             id=uuid.uuid4(),
             student_id=student_id_1,
@@ -387,29 +386,23 @@ async def test_get_students_by_course(
             updated_at=MagicMock(),
         ),
     ]
-    paginated_result.total = 10
-    paginated_result.page = 1
-    paginated_result.page_size = 5
-    paginated_result.total_pages = 2
-    
-    mock_student_course_repository.paginate.return_value = paginated_result
     
     # Мокируем get_by_ids
     students = [
-        StudentReadSchema(
-            id=student_id_1,
-            full_name="Иванов Иван",
-            telegram_username="ivanov",
-            telegram_id=123456,
-            is_active=True,
-            created_at=MagicMock(),
-            updated_at=MagicMock(),
-        ),
         StudentReadSchema(
             id=student_id_2,
             full_name="Петров Петр",
             telegram_username="petrov",
             telegram_id=789012,
+            is_active=True,
+            created_at=MagicMock(),
+            updated_at=MagicMock(),
+        ),
+        StudentReadSchema(
+            id=student_id_1,
+            full_name="Иванов Иван",
+            telegram_username="ivanov",
+            telegram_id=123456,
             is_active=True,
             created_at=MagicMock(),
             updated_at=MagicMock(),
@@ -422,16 +415,15 @@ async def test_get_students_by_course(
     
     # Assert
     assert len(result["items"]) == 2
-    assert result["total"] == 10
+    assert [student.full_name for student in result["items"]] == [
+        "Иванов Иван",
+        "Петров Петр",
+    ]
+    assert result["total"] == 2
     assert result["page"] == 1
     assert result["page_size"] == 5
-    assert result["total_pages"] == 2
-    mock_student_course_repository.paginate.assert_called_once_with(
-        page=1,
-        page_size=5,
-        search_field="course_session_id",
-        search_value=str(course_id),
-    )
+    assert result["total_pages"] == 1
+    mock_student_course_repository.get_all.assert_called_once()
     mock_student_repository.get_by_ids.assert_called_once_with([student_id_1, student_id_2])
 
 

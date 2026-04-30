@@ -303,39 +303,28 @@ class StudentService(StudentServiceProtocol):
             - page_size: размер страницы
             - total_pages: общее количество страниц
         """
-        try:
-            paginated_result = await self.student_course_repository.paginate(
-                page=page,
-                page_size=page_size,
-                search_field="course_session_id",
-                search_value=str(course_id),
-            )
-            student_ids = [student_course.student_id for student_course in paginated_result.items]
-            students = await self.student_repository.get_by_ids(student_ids) if student_ids else []
-            return {
-                "items": students,
-                "total": paginated_result.total,
-                "page": paginated_result.page,
-                "page_size": paginated_result.page_size,
-                "total_pages": paginated_result.total_pages,
-            }
-        except TypeError:
-            student_courses = await self.student_course_repository.get_all()
-            student_ids = [
-                student_course.student_id
-                for student_course in student_courses
-                if student_course.course_session_id == course_id
-            ]
-            students = await self.student_repository.get_by_ids(student_ids) if student_ids else []
-            total = len(students)
-            total_pages = (total + page_size - 1) // page_size if total > 0 else 1
-            start_idx = (page - 1) * page_size
-            end_idx = start_idx + page_size
+        student_courses = await self.student_course_repository.get_all()
+        student_ids = [
+            student_course.student_id
+            for student_course in student_courses
+            if student_course.course_session_id == course_id
+        ]
+        students = await self.student_repository.get_by_ids(student_ids) if student_ids else []
+        students = sorted(
+            students,
+            key=lambda student: (student.full_name.casefold(), str(student.id)),
+        )
 
-            return {
-                "items": students[start_idx:end_idx],
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": total_pages,
-            }
+        total = len(students)
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 1
+        normalized_page = max(1, min(page, total_pages))
+        start_idx = (normalized_page - 1) * page_size
+        end_idx = start_idx + page_size
+
+        return {
+            "items": students[start_idx:end_idx],
+            "total": total,
+            "page": normalized_page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }

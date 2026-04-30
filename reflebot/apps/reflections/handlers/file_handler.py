@@ -142,16 +142,17 @@ class FileUploadHandler(FileUploadHandlerProtocol):
                 if file is None:
                     raise ValidationError("file", "Для догрузки курса нужен Excel файл.")
                 course_id = self._parse_uuid(data["course_id"])
-                lections_count = await self.append_course_from_excel_use_case(
+                created_lections = await self.append_course_from_excel_use_case(
                     course_id=course_id,
                     excel_file=file.file,
                     current_admin=current_admin,
                 )
-                return await self.button_handler.render_admin_course_details(
+                return await self.button_handler.render_append_course_menu(
                     telegram_id,
                     course_id,
                     page=int(data.get("page", 1)),
-                    message_prefix=TelegramMessages.get_course_appended_success(lections_count),
+                    appended_lection_ids=[str(lection.id) for lection in created_lections],
+                    push_navigation=True,
                 )
 
             if action == "attach_students":

@@ -285,6 +285,12 @@ class QuestionBaseSchema(BaseModel):
     
     lection_session_id: uuid.UUID = Field(..., description="ID лекции")
     question_text: str = Field(..., description="Текст вопроса")
+    question_pool_index: int = Field(default=0, ge=0, description="Индекс пула вопросов")
+    question_pool_questions_to_ask_count: int | None = Field(
+        default=None,
+        ge=1,
+        description="Сколько вопросов нужно задать из этого пула",
+    )
 
 
 class QuestionCreateSchema(QuestionBaseSchema, CreateBaseModel):

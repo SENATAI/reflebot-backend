@@ -107,6 +107,9 @@ def build_button_handler() -> ButtonActionHandler:
     student_service = AsyncMock()
     admin_service.get_by_telegram_id.return_value = create_admin()
     teacher_service.get_by_telegram_id.return_value = None
+    teacher_service.get_by_telegram_username.return_value = None
+    teacher_service.is_attached_to_course.return_value = False
+    teacher_service.get_teacher_ids_by_course.return_value = []
     student_service.get_by_telegram_id.return_value = None
     student_service.is_attached_to_course.return_value = False
     context_service = AsyncMock()
@@ -674,6 +677,142 @@ async def test_text_handler_teacher_attach_completion_shows_finish_creation_butt
 
 
 @pytest.mark.asyncio
+async def test_text_handler_append_preview_reports_teacher_already_attached():
+    button_handler = build_button_handler()
+    course_id = uuid.uuid4()
+    context_service = AsyncMock()
+    context_service.get_context.return_value = {
+        "action": "attach_teacher",
+        "step": "awaiting_username",
+        "data": {
+            "course_id": str(course_id),
+            "page": 2,
+            "fullname": "Иванов Иван",
+            "appended_lection_ids": [str(uuid.uuid4())],
+        },
+    }
+    existing_teacher = Mock(id=uuid.uuid4(), full_name="Иванов Иван")
+    button_handler.teacher_service.get_by_telegram_username.return_value = existing_teacher
+    button_handler.teacher_service.is_attached_to_course.return_value = True
+    button_handler.render_append_course_menu = AsyncMock(
+        return_value=ActionResponseSchema(message="preview", buttons=[]),
+    )
+    text_handler = TextInputHandler(
+        context_service=context_service,
+        admin_service=button_handler.admin_service,
+        teacher_service=button_handler.teacher_service,
+        student_service=button_handler.student_service,
+        create_admin_use_case=AsyncMock(),
+        attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
+        update_lection_use_case=AsyncMock(),
+        manage_questions_use_case=AsyncMock(),
+        button_handler=button_handler,
+    )
+
+    response = await text_handler.handle("teacher_username", 1)
+
+    button_handler.render_append_course_menu.assert_awaited_once_with(
+        1,
+        course_id,
+        2,
+        context_service.get_context.return_value["data"]["appended_lection_ids"],
+        message_prefix=TelegramMessages.get_teacher_already_attached(existing_teacher.full_name),
+    )
+    assert response.message == "preview"
+
+
+@pytest.mark.asyncio
+async def test_text_handler_existing_course_teacher_attach_returns_to_course_details():
+    button_handler = build_button_handler()
+    course_id = uuid.uuid4()
+    context_service = AsyncMock()
+    context_service.get_context.return_value = {
+        "action": "attach_teacher",
+        "step": "awaiting_username",
+        "data": {
+            "course_id": str(course_id),
+            "page": 4,
+            "course_flow": "existing_course",
+            "fullname": "Иванов Иван",
+        },
+    }
+    teacher = Mock(full_name="Иванов Иван")
+    button_handler.render_admin_course_details = AsyncMock(
+        return_value=ActionResponseSchema(message="course-details", buttons=[]),
+    )
+    text_handler = TextInputHandler(
+        context_service=context_service,
+        admin_service=button_handler.admin_service,
+        teacher_service=button_handler.teacher_service,
+        student_service=button_handler.student_service,
+        create_admin_use_case=AsyncMock(),
+        attach_teachers_to_course_use_case=AsyncMock(return_value=teacher),
+        send_course_broadcast_message_use_case=AsyncMock(),
+        update_lection_use_case=AsyncMock(),
+        manage_questions_use_case=AsyncMock(),
+        button_handler=button_handler,
+    )
+
+    response = await text_handler.handle("teacher_username", 1)
+
+    button_handler.render_admin_course_details.assert_awaited_once_with(
+        1,
+        course_id,
+        page=4,
+        message_prefix=TelegramMessages.get_teacher_attached(teacher.full_name),
+    )
+    assert response.message == "course-details"
+
+
+@pytest.mark.asyncio
+async def test_text_handler_existing_course_teacher_duplicate_returns_to_course_details():
+    button_handler = build_button_handler()
+    course_id = uuid.uuid4()
+    context_service = AsyncMock()
+    context_service.get_context.return_value = {
+        "action": "attach_teacher",
+        "step": "awaiting_username",
+        "data": {
+            "course_id": str(course_id),
+            "page": 4,
+            "course_flow": "existing_course",
+            "fullname": "Иванов Иван",
+        },
+    }
+    existing_teacher = Mock(id=uuid.uuid4(), full_name="Иванов Иван")
+    button_handler.teacher_service.get_by_telegram_username.return_value = existing_teacher
+    button_handler.teacher_service.is_attached_to_course.return_value = True
+    button_handler.render_admin_course_details = AsyncMock(
+        return_value=ActionResponseSchema(message="course-details", buttons=[]),
+    )
+    text_handler = TextInputHandler(
+        context_service=context_service,
+        admin_service=button_handler.admin_service,
+        teacher_service=button_handler.teacher_service,
+        student_service=button_handler.student_service,
+        create_admin_use_case=AsyncMock(),
+        attach_teachers_to_course_use_case=AsyncMock(),
+        send_course_broadcast_message_use_case=AsyncMock(),
+        update_lection_use_case=AsyncMock(),
+        manage_questions_use_case=AsyncMock(),
+        button_handler=button_handler,
+    )
+
+    response = await text_handler.handle("teacher_username", 1)
+
+    button_handler.render_admin_course_details.assert_awaited_once_with(
+        1,
+        course_id,
+        page=4,
+        message_prefix=TelegramMessages.get_teacher_already_attached(
+            existing_teacher.full_name
+        ),
+    )
+    assert response.message == "course-details"
+
+
+@pytest.mark.asyncio
 async def test_button_handler_starts_course_creation_with_name_request():
     button_handler = build_button_handler()
 
@@ -789,6 +928,8 @@ async def test_render_admin_course_details_shows_course_code_and_back_button():
     assert course.name in response.message
     assert course.join_code in response.message
     assert [button.action for button in response.buttons] == [
+        TelegramButtons.COURSE_VIEW_PARSED_LECTIONS,
+        TelegramButtons.COURSE_ATTACH_TEACHERS,
         TelegramButtons.COURSE_APPEND_LECTIONS,
         TelegramButtons.COURSE_SEND_ALERT,
         TelegramButtons.COURSE_SEND_MESSAGE,
@@ -816,6 +957,79 @@ async def test_button_handler_starts_append_course_lections_flow():
     )
     assert response.message == TelegramMessages.get_append_course_request_file()
     assert response.awaiting_input is True
+
+
+@pytest.mark.asyncio
+async def test_button_handler_confirms_appended_course_lections():
+    button_handler = build_button_handler()
+    course = create_course()
+    teacher_id = uuid.uuid4()
+    lection_ids = [uuid.uuid4(), uuid.uuid4()]
+    expected = ActionResponseSchema(message="ok", buttons=[])
+    button_handler.context_service.get_context.return_value = {
+        "action": "append_course_menu",
+        "step": "view",
+        "data": {
+            "course_id": str(course.id),
+            "page": 2,
+            "appended_lection_ids": [str(lection_id) for lection_id in lection_ids],
+        },
+    }
+    button_handler.student_service.get_students_by_course.return_value = {
+        "items": [create_student()],
+    }
+    button_handler.teacher_service.get_teacher_ids_by_course.return_value = [teacher_id]
+    button_handler.render_admin_course_details = AsyncMock(return_value=expected)
+
+    response = await button_handler.handle(TelegramButtons.COURSE_CONFIRM_APPEND, 1)
+
+    button_handler.student_service.attach_to_lections.assert_awaited_once()
+    assert button_handler.student_service.attach_to_lections.call_args.kwargs["lection_ids"] == lection_ids
+    button_handler.teacher_service.attach_to_lections.assert_awaited_once_with(
+        teacher_id=teacher_id,
+        lection_ids=lection_ids,
+    )
+    button_handler.context_service.clear_context.assert_awaited_once_with(1)
+    button_handler.render_admin_course_details.assert_awaited_once_with(
+        1,
+        course.id,
+        page=2,
+        message_prefix=TelegramMessages.get_course_appended_success(2),
+    )
+    assert response is expected
+
+
+@pytest.mark.asyncio
+async def test_button_handler_cancels_append_and_deletes_only_new_lections():
+    button_handler = build_button_handler()
+    course = create_course()
+    lection_ids = [uuid.uuid4(), uuid.uuid4(), uuid.uuid4()]
+    expected = ActionResponseSchema(message="ok", buttons=[])
+    button_handler.context_service.get_context.return_value = {
+        "action": "append_course_menu",
+        "step": "view",
+        "data": {
+            "course_id": str(course.id),
+            "page": 3,
+            "appended_lection_ids": [str(lection_id) for lection_id in lection_ids],
+        },
+    }
+    button_handler.course_service.delete_lections_from_course = AsyncMock(return_value=3)
+    button_handler.render_admin_course_details = AsyncMock(return_value=expected)
+
+    response = await button_handler.handle(TelegramButtons.COURSE_CANCEL_PARSING, 1)
+
+    button_handler.course_service.delete_lections_from_course.assert_awaited_once_with(
+        course.id,
+        lection_ids,
+    )
+    button_handler.render_admin_course_details.assert_awaited_once_with(
+        1,
+        course.id,
+        page=3,
+        message_prefix=TelegramMessages.get_course_append_cancelled(3),
+    )
+    assert response is expected
 
 
 @pytest.mark.asyncio
@@ -1222,10 +1436,12 @@ async def test_file_handler_routes_by_context_action(action_name: str):
     button_handler.build_main_menu_response = AsyncMock(return_value=Mock())
     button_handler.render_course_menu = AsyncMock(return_value=Mock())
     button_handler.render_admin_course_details = AsyncMock(return_value=Mock())
+    button_handler.render_append_course_menu = AsyncMock(return_value=Mock())
     button_handler.render_presentation_menu = AsyncMock(return_value=Mock())
     button_handler.render_recording_menu = AsyncMock(return_value=Mock())
     create_course_use_case = AsyncMock(return_value=create_course())
-    append_course_use_case = AsyncMock(return_value=3)
+    append_course_lection = create_lection()
+    append_course_use_case = AsyncMock(return_value=[append_course_lection])
     attach_students_use_case = AsyncMock(return_value=2)
     manage_files_use_case = AsyncMock()
     file_handler = FileUploadHandler(
@@ -1257,7 +1473,7 @@ async def test_file_handler_routes_by_context_action(action_name: str):
             excel_file=ANY,
             current_admin=button_handler._require_admin.return_value,
         )
-        button_handler.render_admin_course_details.assert_called_once()
+        button_handler.render_append_course_menu.assert_called_once()
     elif action_name == "attach_students":
         attach_students_use_case.assert_called_once()
     elif action_name == "edit_lection_presentation":
@@ -2155,9 +2371,27 @@ async def test_render_student_statistics_uses_short_reflection_actions():
 async def test_render_analytics_lection_statistics_uses_short_reflection_actions():
     handler = build_button_handler()
     student = create_student()
+    another_student = StudentReadSchema(
+        id=uuid.uuid4(),
+        full_name="Александров Алексей",
+        telegram_username="aleksandrov",
+        telegram_id=3,
+        is_active=True,
+        created_at=student.created_at,
+        updated_at=student.updated_at,
+    )
+    student = StudentReadSchema(
+        id=student.id,
+        full_name="Яковлев Яков",
+        telegram_username=student.telegram_username,
+        telegram_id=student.telegram_id,
+        is_active=student.is_active,
+        created_at=student.created_at,
+        updated_at=student.updated_at,
+    )
     lection = create_lection("Архитектура ПО")
     handler.pagination_service.paginate = Mock(return_value={
-        "items": [student],
+        "items": [another_student, student],
         "total_pages": 1,
     })
     handler.view_lection_analytics_use_case.return_value = Mock(
@@ -2165,13 +2399,20 @@ async def test_render_analytics_lection_statistics_uses_short_reflection_actions
         total_students=10,
         reflections_count=1,
         qa_count=1,
-        students_with_reflections=[student],
+        students_with_reflections=[student, another_student],
     )
 
     response = await handler.render_analytics_lection_statistics(1, lection.id, 1)
 
-    assert response.buttons[0].action == f"{TelegramButtons.ANALYTICS_VIEW_REFLECTION}:{student.id}"
-    assert response.buttons[0].text == f"👨‍🎓 {student.full_name} (@{student.telegram_username})"
+    paginated_items = handler.pagination_service.paginate.call_args.args[0]
+    assert [student_item.full_name for student_item in paginated_items] == [
+        "Александров Алексей",
+        student.full_name,
+    ]
+    assert response.buttons[0].action == f"{TelegramButtons.ANALYTICS_VIEW_REFLECTION}:{another_student.id}"
+    assert response.buttons[0].text == (
+        f"👨‍🎓 {another_student.full_name} (@{another_student.telegram_username})"
+    )
 
 
 @pytest.mark.asyncio
